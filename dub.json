@@ -1,0 +1,10 @@
+ {
+	"name" : "main",
+	"description" : "Quality checks in D using BioD",
+	"authors": ["Wai Yi Leung"],
+	"dflags-dmd": ["-vtls"],
+	"lflags": ["--build-only", "-O2", "-release"],
+	"targetName": "yamsvc-bedregion",
+	"dependencies" : {
+	}
+}
