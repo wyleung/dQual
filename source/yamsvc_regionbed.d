@@ -7,6 +7,15 @@
  @license: MIT Licence
 */
 
+/*
+    Region definition: a genomic region with at least 2 bases
+    We summarize the genome regions which have genomic DNA reads aligned, 
+    but they are reported discordant (abnormal insert-size, mate on other chromosome)
+    
+    
+*/
+
+
 import std.getopt;
 import std.stdio;
 import std.parallelism;
@@ -21,25 +30,29 @@ import bio.bam.read;
 class DiscordantRegion {
 	ulong start=0;
 	ulong end=0;
-	int chromosome=-1;
-	ulong[] coverages;
+	short chromosome=-1;
+	ushort[] coverages;
 	bool working;
 	
-	void addCoverage( ulong coverage ) {
+	void addCoverage( ushort coverage ) {
 		// append coverage to the coverages
 		coverages ~= coverage;
 	}
 	
-	int maxCoverage(){
+	ushort maxCoverage(){
 		if(coverages.length){
-			return cast(int) reduce!(max)(coverages);
+			return reduce!(max)(coverages);
 		} else {
 			return 0;
 		}
 	}
 	
-	int avgCoverage(){
-		return 0;
+	ushort avgCoverage(){
+		/* FIXME: cast from ulong to int is not so performing? 
+			We are only interested in coverages upto ushort (65,535) large?
+		*/
+		auto sum = reduce!((a,b) => a + b)(0, coverages);
+		return cast(ushort)(sum / coverages.length);
 	}
 	
 	void resetCoverage() {
@@ -66,12 +79,17 @@ bool is_concordant( BamRead read ) {
 		case 83:
 		case 163:
 			return true;
-			break;
 		default:
 		return false;
 	}
 	return false;
 }
+
+bool has_minimum_quality( BamRead read, int minQuality ) {
+	if(read.mapping_quality == 0) return false;
+	return minQuality >= read.mapping_quality;
+}
+
 
 // auto makePileup(R)(R reads, int window_width, int cutoff_min, int cutoff_max ) {
 // 	auto pileup = makePileup(reads, true);
@@ -122,11 +140,11 @@ void printUsage() {
     stderr.writeln("Options: -T, --threads=NTHREADS");
     stderr.writeln("                    maximum number of threads to use");
     stderr.writeln("         -w, --window=WINDOWWIDTH");
-    stderr.writeln("                    width of window (bp) to scan (200)");
+    stderr.writeln("                    width of window (bp) to scan [200]");
     stderr.writeln("         -l, --cutoff_min");
-    stderr.writeln("                    low threshold for max reads covering a breakpoint");
+    stderr.writeln("                    low threshold for reads covering a breakpoint [4]");
     stderr.writeln("         -h, --cutoff_max");
-    stderr.writeln("                    high threshold for max reads covering a breakpoint");
+    stderr.writeln("                    high threshold for reads covering a breakpoint [90]");
     stderr.writeln("         -v, --verbose");
     stderr.writeln("                    Turn on verbose mode");
 }
@@ -193,7 +211,7 @@ int main(string[] args) {
 				// 	read.is_paired(),
 				// 	read.proper_pair(),
 				// 	read.cigar_before, read.cigar_after);
-				if( is_concordant(read) ) coverage++;
+				if( is_concordant(read) && has_minimum_quality(read, 30) ) coverage++;
 			}
 			auto discordant_coverage = column.coverage-coverage;
 			// should be dynamic range
@@ -202,19 +220,19 @@ int main(string[] args) {
 				// quick patch
 				if ( lastChrom == -1 ) {
 					lastChrom = column.ref_id;
-					bed.chromosome = column.ref_id;
+					bed.chromosome = cast(short) column.ref_id;
 				}
 
 				if ( bed.chromosome == column.ref_id && (column.position - window_width) < bed.end && bed.end < column.position ) {
 					bed.end = column.position;
-					bed.addCoverage( discordant_coverage );
+					bed.addCoverage( cast(ushort) discordant_coverage );
 				}
 				else {
 					if ( bed.working ) {
 						writefln("%s\t%d\t%d\tDP=%d;DPdis=%d;CLEN=%d", bam.reference_sequences[bed.chromosome].name, bed.start, bed.end+1, coverage, bed.maxCoverage(), bed.length());
 					}
 					bed.startReporting();
-					bed.chromosome = column.ref_id;
+					bed.chromosome = cast(ushort) column.ref_id;
 					bed.start = column.position;
 					bed.end = column.position;
 					bed.resetCoverage();

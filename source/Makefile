@@ -1,10 +1,10 @@
 
-all: yamsvc-regionbed
+all: yamsvc-regionbed fastq-qc
 
-main: main.d
-	rdmd --force --compiler=ldmd2  --build-only  -O2 -release  -cov -I`pwd`/BioD $<
-    # rdmd --force --compiler=ldmd2  --build-only  -O2 -release  -cov -I`pwd`/sambamba -I`pwd`/sambamba/BioD hello.d
+yamsvc-regionbed: yamsvc_regionbed.d
+	rdmd --force --compiler=ldmd2  --build-only  -O2 -release  -cov -I`pwd`/BioD -of$@ $<
 
-yamsvc-regionbed: main
-	cp $< $@
+
+fastq-qc: fastq/test.d
+	rdmd --force --compiler=ldmd2  --build-only  -O2 -release  -cov -I`pwd`/BioD -of$@ $<
 
