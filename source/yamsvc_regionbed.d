@@ -38,25 +38,25 @@ class DiscordantRegion {
 	ushort[] coverages;
 	bool working;
 	
-	void addCoverage( ushort coverage ) {
-		coverages ~= coverage;
+	void addCoverage( ushort cov ) {
+		this.coverages ~= cov;
 	}
 	
-	void addCoverageDiscordant( ushort coverage ) {
-		coverages_discordant ~= coverage;
+	void addCoverageDiscordant( ushort cov ) {
+		this.coverages_discordant ~= cov;
 	}
 	
 	ushort maxCoverage(){
-		if(coverages.length){
-			return reduce!(max)(coverages);
+		if(this.coverages.length){
+			return reduce!(max)(this.coverages);
 		} else {
 			return 0;
 		}
 	}
 	
 	ushort maxCoverageDiscordant(){
-		if(coverages_discordant.length){
-			return reduce!(max)(coverages_discordant);
+		if(this.coverages_discordant.length){
+			return reduce!(max)(this.coverages_discordant);
 		} else {
 			return 0;
 		}
@@ -66,33 +66,53 @@ class DiscordantRegion {
 		/* FIXME: cast from ulong to int is not so performing? 
 			We are only interested in coverages upto ushort (65,535) large?
 		*/
-		auto sum = reduce!((a,b) => a + b)(0, coverages);
+		auto sum = reduce!((a,b) => a + b)(0, this.coverages);
 		if( sum == 0 ) {
 			return 0;
 		}
-		return cast(ushort) abs(sum / coverages.length);
+		return cast(ushort) abs(sum / this.coverages.length);
 	}
 	
 	void resetCoverage() {
 		/*
 			Empty the coverages for a new region run
 		*/
-		coverages = [];
-		coverages_discordant = [];
+		this.coverages = [];
+		this.coverages_discordant = [];
 	}
 	
 	ulong length() {
-		return end-start;
+		return this.end - this.start;
 		
 	}
 	
+	void startReporting( ushort ref_id, ulong start, ulong end ) {
+		this.working = true;
+		this.chromosome = ref_id;
+		this.start = start;
+		this.end = end;
+		this.resetCoverage();
+	}
 	void startReporting( ) {
-		working = true;
+		this.working = true;
 	}
 }
 
 
 uint n_threads;
+
+void printBedRegion(string reference_name, ref DiscordantRegion bed ) {
+	if ( bed.length() && bed.maxCoverageDiscordant() ) {
+		writefln("%s\t%d\t%d\tDP=%d;DPdis=%d;CLEN=%d", 
+			reference_name, 
+			bed.start, 
+			bed.end+1, 
+			bed.avgCoverage(), 
+			bed.maxCoverageDiscordant(), 
+			bed.length()
+		);
+	}
+}
 
 void makeRegion(BamReader bam, ReferenceSequenceInfo reference_sequence, ushort cutoff_min, ushort cutoff_max, ushort window_width) {
 	auto reads = bam[ cast(string) reference_sequence.name() ][1 .. reference_sequence.length];
@@ -106,15 +126,20 @@ void makeRegion(BamReader bam, ReferenceSequenceInfo reference_sequence, ushort 
 		
 	foreach (column; pileup) {
 		auto coverage = 0;
+		auto discordant_coverage = 0;
 		
 		foreach (read; column.reads) {
 			if( is_concordant(read) && has_minimum_quality(read, 20) ) {
 				coverage++;
 			}
+			if (!is_concordant(read) && has_minimum_quality(read, 20) ) {
+				discordant_coverage++;
+			}
 		}
-		auto discordant_coverage = column.coverage-coverage;
+
 		// should be dynamic range
-		if ( discordant_coverage >= cutoff_min &&  discordant_coverage <= cutoff_max ) {
+		if ( discordant_coverage >= cutoff_min && 
+			discordant_coverage <= cutoff_max ) {
 			// check whether to output or not
 			// quick patch for initializing the lastChrom
 			if ( lastChrom == -1 ) {
@@ -126,7 +151,7 @@ void makeRegion(BamReader bam, ReferenceSequenceInfo reference_sequence, ushort 
 			bool same_chrom = bed.chromosome == column.ref_id;
 			bool in_window = (abs(column.position - window_width) < bed.end) && (bed.end < column.position);
 			
-			if ( same_chrom && in_window) {
+			if ( same_chrom && in_window ) {
 				bed.end = column.position;
 				bed.addCoverage( cast(ushort) coverage );
 				bed.addCoverageDiscordant( cast(ushort) discordant_coverage );
@@ -135,33 +160,22 @@ void makeRegion(BamReader bam, ReferenceSequenceInfo reference_sequence, ushort 
 				if ( bed.working ) {
 					// report only if we were working on a bed track.
 					// and if we have logical results
-					if ( bed.length() && bed.maxCoverageDiscordant() ) {
-						writefln("%s\t%d\t%d\tDP=%d;DPdis=%d;CLEN=%d", 
-							bam.reference_sequences[bed.chromosome].name, 
-							bed.start, 
-							bed.end+1, 
-							bed.avgCoverage(), 
-							bed.maxCoverageDiscordant(), 
-							bed.length()
-						);
-					}
+					printBedRegion( bam.reference_sequences[bed.chromosome].name, bed );
 				}
 
 				// start new bed track for the new region
-				bed.startReporting();
-				bed.chromosome = cast(ushort) column.ref_id;
-				bed.start = column.position;
-				bed.end = column.position;
-				bed.resetCoverage();
+				bed.startReporting( cast(ushort) column.ref_id, column.position, column.position );
 			}
 		}
 	}
 }
 
 void makeRegion(string bamfile, ReferenceSequenceInfo reference_sequence, ushort cutoff_min, ushort cutoff_max, ushort window_width) {
-	auto bam = new BamReader(bamfile);
+    auto tp = new TaskPool(2);
+    scope(exit) tp.finish();
+	auto bam = new BamReader(bamfile, tp);
 	makeRegion(bam, reference_sequence, cutoff_min, cutoff_max, window_width);
-	}
+}
 
 void printUsage() {
     stderr.writeln("Usage: yamsvp-bedregion [options] <input.bam | input.sam>");
@@ -180,8 +194,7 @@ void printUsage() {
 
 int main(string[] args) {
 
-	ushort n_threads = 4;
-	string bamFile;
+	int n_threads = std.parallelism.totalCPUs;
 	bool verbose;
 	ushort window_width = 200;
 	ushort cutoff_max = 90;
@@ -214,87 +227,5 @@ int main(string[] args) {
     	task_pool.put(t);
     	}
 
-/*    
-	foreach (refseq; bam.reference_sequences) {
-		// auto reads = bam[ refseq ].reads;
-		auto reads = bam[ refseq.name ][1 .. refseq.length];
-//		findDiscordantRegions( reads, window_width, cutoff_min, cutoff_max );
-
-//		 auto reads = bam["1"][41_300 .. 102_800];
-		auto pileup = makePileup(reads, true);
-
-		int lastChrom = -1;
-		ulong lastPos = 0;
-		ulong lastPosStart = 0;
-		
-		DiscordantRegion bed = new DiscordantRegion();
-		
-		foreach (column; pileup) {
-			auto coverage = 0;
-		
-			foreach (read; column.reads) {
-				// writefln("%30s\t%s\t%.2d\t%s\t%2s/%2s\t%2s/%2s\t%10s \t%s\tcc_%s_cc\t%s \t%s \t%s %s", 
-				// 	read.name, 
-				// 	read.current_base,
-				// 	read.current_base_quality,
-				// 	read.cigar_operation,
-				// 	read.cigar_operation_offset + 1, read.cigar_operation.length,
-				// 	read.query_offset + 1, read.sequence.length,
-				// 	read.cigarString(),
-				// 	read.flag(),
-				// 	is_concordant(read),
-				// 	read.is_paired(),
-				// 	read.proper_pair(),
-				// 	read.cigar_before, read.cigar_after);
-				if( is_concordant(read) && has_minimum_quality(read, 30) ) {
-					coverage++;
-				}
-			}
-			auto discordant_coverage = column.coverage-coverage;
-			// should be dynamic range
-			if ( discordant_coverage >= cutoff_min &&  discordant_coverage <= cutoff_max ) {
-				// check whether to output or not
-				// quick patch for initializing the lastChrom
-				if ( lastChrom == -1 ) {
-					lastChrom = column.ref_id;
-					bed.chromosome = cast(short) column.ref_id;
-				}
-
-				// We are working on the same chromosome as before
-				bool same_chrom = bed.chromosome == column.ref_id;
-				bool in_window = (abs(column.position - window_width) < bed.end) && (bed.end < column.position);
-				
-				if ( same_chrom && in_window) {
-					bed.end = column.position;
-					bed.addCoverage( cast(ushort) coverage );
-					bed.addCoverageDiscordant( cast(ushort) discordant_coverage );
-				}
-				else {
-					if ( bed.working ) {
-						// report only if we were working on a bed track.
-						// and if we have logical results
-						if ( bed.length() && bed.maxCoverageDiscordant() ) {
-							writefln("%s\t%d\t%d\tDP=%d;DPdis=%d;CLEN=%d", 
-								bam.reference_sequences[bed.chromosome].name, 
-								bed.start, 
-								bed.end+1, 
-								bed.avgCoverage(), 
-								bed.maxCoverageDiscordant(), 
-								bed.length()
-							);
-						}
-					}
-
-					// start new bed track for the new region
-					bed.startReporting();
-					bed.chromosome = cast(ushort) column.ref_id;
-					bed.start = column.position;
-					bed.end = column.position;
-					bed.resetCoverage();
-				}
-			}
-		}
-	}
-*/
 	return 0;
 }

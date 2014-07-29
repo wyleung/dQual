@@ -40,73 +40,6 @@ void printUsage() {
     stderr.writeln("                    Turn on verbose mode");
 }
 
-class RegionDefiner {
-    /**
-    	Define a region from a alignment (bam file)
-    
-      Example:
-      -------------------------------------------
-      import std.parallelism, bio.bam.reader;
-      void main() {
-        auto pool = new TaskPool(4); // use 4 threads
-        scope (exit) pool.finish();  // don't forget!
-        auto region = new RegionDefiner("file.bam", pool);
-        ...
-      }
-      -------------------------------------------
-     */
-	this(std.stream.Stream stream, 
-         std.parallelism.TaskPool task_pool = std.parallelism.taskPool) {
-        _task_pool = task_pool;
-    }
-
-    /// ditto
-    this(string filename, std.parallelism.TaskPool task_pool) {
-        _filename = filename;
-//        _source_stream = getNativeEndianSourceStream();
-//        this(_source_stream, task_pool);
-    }
-
-    /// ditto
-    this(string filename) {
-        this(filename, std.parallelism.taskPool);
-    }
-
-    /** Filename, if the object was created via file name constructor,
-        $(D null) otherwise.
-     */
-    string filename() @property const {
-        return _filename;
-    }
-
-
-    TaskPool _task_pool;
-    size_t _buffer_size = 4096; // buffer size to be used for I/O
-
-private:
-    
-    string _filename;                       // filename (if available)
-
-
-}
-
-
-void defineRegion(BamReader bam, ReferenceSequenceInfo reference_sequence) {
-	auto reads = bam[ cast(string) reference_sequence.name() ][1 .. reference_sequence.length];
-	auto pileup = makePileup(reads, true);
-	foreach (column; pileup) {
-		writefln("%s %s", column.coverage, reference_sequence.name());
-		}
-	}
-
-
-void defineRegion(string bamfile, ReferenceSequenceInfo reference_sequence) {
-	auto bam = new BamReader(bamfile);
-	defineRegion(bam, reference_sequence);
-	}
-
-
-
 int main(string[] args) {
 	int n_threads = 4;
 	bool verbose;
@@ -135,13 +68,19 @@ int main(string[] args) {
 //    dst.writeSamHeader(bam.header);         // copy header and reference sequence info
 //    dst.writeReferenceSequenceInfo(bam.reference_sequences);
     
-    foreach (refseq; bam.reference_sequences) {
-    	writefln("Starting thread for %s", refseq);
-    	auto t = task!defineRegion(bamfile, refseq);
-    	task_pool.put(t);
-//    	t.executeInNewThread();
-//    	defineRegion(bam, refseq);
-    }
+    /*
+    	read region definitions,
+    	sort the regions by chromosome/contig, start
+    		- filter by given DPdis
+    		- filter out any clen < readlength, we are not capable calling these
+    	chunk regions by: (n regions / n_treads) * 50?
+    		- start analysis of each region in a new task
+    		- tasks reports to RegionCollection class (shared ipc)
+    	match regions
+    	annotate regions (DEL, INS, INV, ITX, CTC etc.)
+    	write vcf file
+    */
+    
 	return 0;
 }
 
