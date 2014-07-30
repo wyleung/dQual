@@ -1,12 +1,17 @@
 
-all: yamsvc-regionbed fastq-qc yamsvc-caller
+PWD := $(shell pwd)
+OUT_DIR := $(PWD)/bin
 
-yamsvc-regionbed: yamsvc_regionbed.d
+TARGET := yamsvc-regionbed fastq-qc yamsvc-caller
+
+all: $(addprefix $(OUT_DIR)/, $(TARGET))
+
+$(OUT_DIR)/yamsvc-regionbed: yamsvc_regionbed.d
 	rdmd --force --compiler=ldmd2  --build-only  -O2 -release  -cov -I`pwd`/BioD -of$@ $<
 
-yamsvc-caller: yamsvc_caller.d
+$(OUT_DIR)/yamsvc-caller: yamsvc_caller.d
 	rdmd --force --compiler=ldmd2  --build-only  -O2 -release  -cov -I`pwd`/BioD -of$@ $<
 
-fastq-qc: fastq/test.d
+$(OUT_DIR)/fastq-qc: fastq/test.d
 	rdmd --force --compiler=ldmd2  --build-only  -O2 -release  -cov -I`pwd`/BioD -of$@ $<
 
