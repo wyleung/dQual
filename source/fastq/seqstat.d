@@ -37,16 +37,17 @@ class SeqStat {
         reads["N"] = 0;
         reads["total"] = 0;
         bases["N"] = 0;
+        bases["total"] = 0;
     }
     
     void add( FastQRead read ) {
         // record n bases
         this.bases["N"] += read.n_bases;
+        this.bases["total"] += read.length;
         
         if( read.n_bases > 0 ){
             reads["N"] += 1;
         }
-        
         this.reads["total"] += 1;
         
         // update length statistics
