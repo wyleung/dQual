@@ -3,6 +3,8 @@
 ######
 
 
+
+
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
 uname_O := $(shell sh -c 'uname -o 2>/dev/null || echo not')
@@ -28,11 +30,11 @@ $(BUILD_DIR):
 	mkdir -p $@
 
 $(BUILD_DIR)/yamsvc-regionbed: yamsvc_regionbed.d yamsvc/utils.d | $(BUILD_DIR)
-	rdmd --force --compiler=ldmd2  --build-only  -O2 -release  -cov -I`pwd`/BioD -of$@ $<
+	rdmd --force --compiler=ldmd2  --build-only  -O2 -release  -cov -I`pwd`/BioD -I`pwd`/sambamba -of$@ $<
 
 $(BUILD_DIR)/yamsvc-caller: yamsvc_caller.d yamsvc/utils.d | $(BUILD_DIR)
-	rdmd --force --compiler=ldmd2  --build-only  -O2 -release  -cov -I`pwd`/BioD -of$@ $<
+	rdmd --force --compiler=ldmd2  --build-only  -O2 -release  -cov -I`pwd`/BioD -I`pwd`/sambamba -of$@ $<
 
 $(BUILD_DIR)/fastq-seqstat: fastq/seqstat.d yamsvc/utils.d | $(BUILD_DIR)
-	rdmd --force --compiler=ldmd2  --build-only  -O2 -release  -cov -I`pwd`/BioD -of$@ $<
+	rdmd --force --compiler=ldmd2  --build-only  -O2 -release  -cov -I`pwd`/BioD -I`pwd`/sambamba -of$@ $<
 

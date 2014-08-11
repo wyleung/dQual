@@ -1,0 +1,3 @@
+[submodule "source/sambamba"]
+	path = source/sambamba
+	url = git@github.com:lomereiter/sambamba.git

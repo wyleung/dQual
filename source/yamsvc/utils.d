@@ -2,7 +2,15 @@ module yamsvc.utils;
 
 import std.algorithm : count, max, reduce;
 import std.math : abs;
+
+
+
 import bio.bam.read;
+import sambamba.utils.common.bed;
+import sambamba.utils.common.filtering;
+
+
+
 
 bool is_concordant( BamRead read ) {
 	switch ( read.flag() ) {
@@ -114,3 +122,60 @@ class DiscordantRegion {
 		this.working = true;
 	}
 }
+
+
+// from sambamba/view.d (r4b7d32ba0de49f26d4ba0de8ba8b1e43c75bc50f)
+
+void runProcessor(SB, R, F, P)(SB bam, R reads, F filter, P processor) {
+    if (processor.is_serial)
+        bam.assumeSequentialProcessing();
+    if (cast(NullFilter) filter)
+        processor.process(reads, bam);
+    else
+        processor.process(reads.filtered(filter), bam);
+}
+
+
+import bio.bam.region;
+
+BamRegion[] parseBed(Reader)(string bed_filename, Reader bam, bool non_overlapping=true) {
+    auto index = sambamba.utils.common.bed.readIntervals(bed_filename, non_overlapping);
+    BamRegion[] regions;
+    foreach (reference, intervals; index) {
+        if (!bam.hasReference(reference))
+            continue;
+        auto id = bam[reference].id;
+        foreach (interval; intervals)
+            regions ~= BamRegion(cast(uint)id,
+                                 cast(uint)interval.beg, cast(uint)interval.end);
+    }
+    std.algorithm.sort(regions);
+    return regions;
+}
+
+
+// flag filtering extended from sambamba
+
+
+/// Filtering integer fields
+final class AlignmentFlagFilter(string op) : Filter {
+    private long _value;
+    this(long value) {
+        _value = value;
+    }
+    bool accepts(ref BamRead a) const {
+        mixin("return a.flag " ~ op ~ "_value;");
+    }
+}
+
+/// Filtering integer fields
+final class TemplateSizeFilter(string op) : Filter {
+    private long _value;
+    this(long value) {
+        _value = value;
+    }
+    bool accepts(ref BamRead a) const {
+    	mixin("return std.math.abs(a.template_length) " ~ op ~ "_value;");
+    }
+}
+

@@ -19,11 +19,12 @@ import std.parallelism;
 import std.algorithm;
 import std.math : abs;
 import std.csv;
+import std.string;
 import std.file;
 import std.concurrency;
 import std.path;
 import std.file;
-import std.stream;
+//import std.stream;
 import std.stdio;
 
 import bio.bam.referenceinfo;
@@ -33,6 +34,8 @@ import bio.bam.pileup;
 import bio.bam.read;
 import bio.bam.writer;
 
+import sambamba.utils.common.filtering;
+import sambamba.utils.view.alignmentrangeprocessor;
 import yamsvc.utils;
 
 void printUsage() {
@@ -40,8 +43,12 @@ void printUsage() {
     stderr.writeln();
     stderr.writeln("Options: -T, --threads=NTHREADS");
     stderr.writeln("                    maximum number of threads to use");
+    stderr.writeln("         -o, --bam_output=BAMOUTPUT");
+    stderr.writeln("                    Write the resulting bam to ...");
     stderr.writeln("         -b, --bedfile=BEDFILE");
     stderr.writeln("                    input bedfile created with yamsvc-region");
+    stderr.writeln("         -l, --compression_level");
+    stderr.writeln("                    compression level 1-9 (low-high) of bam file [9]");
     stderr.writeln("         -i, --insertsize");
     stderr.writeln("                    insertsize of the input bam [450]");
     stderr.writeln("         -s, --insertsd");
@@ -130,14 +137,18 @@ int main(string[] args) {
     int n_threads = 4;
     uint estimated_insertsize = 450;
     uint estimated_insertsize_stdev = 15;
+    ubyte compression_level = 9;
     bool verbose;
-    string bed_file;
+    string bam_outputfilename;
+    string bed_filename;
 
     getopt(
         args,
         std.getopt.config.caseSensitive,
         "threads|T",  &n_threads,    // numeric
-        "bedfile|b", &bed_file,
+        "bedfile|b", &bed_filename,
+        "bamoutput|o", &bam_outputfilename,
+        "compression_level|l", &compression_level, // numeric
         "insertsize|i", &estimated_insertsize, // numeric
         "insertsd|s", &estimated_insertsize_stdev, // numeric
         "verbose|v", &verbose,   // flag
@@ -156,18 +167,76 @@ int main(string[] args) {
     
     string bamfile = args[1];
     BamReader bam = new BamReader(bamfile, reader_pool);
+    // the buf-size is in bytes, 64 Kb = 1024 * 1024 * 64
+	auto input_buf_size = 64_000_000;
+	bam.setBufferSize(input_buf_size);
     
-    
+    /*
     ulong output_buf_size = 32_000_000;
-    Stream stream = new BufferedFile(args[2], FileMode.OutNew, 
+    Stream stream = new BufferedFile(bam_output, FileMode.OutNew, 
                                          output_buf_size);
     BamWriter bamout = new BamWriter(stream, 9, writer_pool, output_buf_size); // maximal compression
     scope (exit) bamout.finish();              // close the stream at exit
     bamout.writeSamHeader(bam.header);         // copy header and reference sequence info
     bamout.writeReferenceSequenceInfo(bam.reference_sequences);
+    */
+
+    File bam_output; 
+    if (bam_outputfilename is null)
+        bam_output = stdout;
+    else
+        bam_output = File(bam_outputfilename, "w+");
+
+//    scope (exit) bam_output.close();
+
+    Filter read_filter = new NullFilter();
+    read_filter = new AndFilter(read_filter, new ValidAlignmentFilter());
+    
+    Filter only_mapped = new AndFilter(
+						new NotFilter(new FlagFilter!"is_unmapped"()), 
+						new NotFilter(new FlagFilter!"mate_is_unmapped"())
+	);
+    
+    Filter quality = new IntegerFieldFilter!">="("mapping_quality", 20);
+    
+    Filter flags = new NotFilter(
+			    	new OrFilter( new AlignmentFlagFilter!"=="(99), 
+		    		new OrFilter( new AlignmentFlagFilter!"=="(147), 
+	    			new OrFilter( new AlignmentFlagFilter!"=="(83), 
+	    							new AlignmentFlagFilter!"=="(163) ) ) )
+	);
+    
+    Filter template_size = new OrFilter( 
+							new TemplateSizeFilter!">="( (estimated_insertsize + ( 2 * estimated_insertsize_stdev )) ),
+							new TemplateSizeFilter!"<="( (estimated_insertsize - ( 2 * estimated_insertsize_stdev )) )
+	);
+    
+    
+    read_filter = new AndFilter(read_filter, only_mapped);
+    read_filter = new AndFilter(read_filter, quality);
+    read_filter = new AndFilter(read_filter, new OrFilter( flags, template_size )); 
+    
+    /* This query is to extract the reads for downstream processing with the 
+    Python based caller. The selection  and export is not fully needed in the D implementation.
+    
+    */
+
+    // adapted from sambamba
+    auto regions = parseBed(bed_filename, bam);
+    auto reads = bam.getReadsOverlapping(regions);
+    runProcessor(bam, reads, read_filter, new BamSerializer(bam_output, cast(int) compression_level, writer_pool));
+    
+
+
+
+    return 0;
+    
+/*    
+    
+    // old approach
 
     // open a bed file
-    auto bedrecords = readText(bed_file);
+    auto bedrecords = readText(bed_filename);
     auto records = csvReader!BedRecord(bedrecords, null , '\t');
     
     auto reads_processed = 0;
@@ -195,7 +264,7 @@ int main(string[] args) {
         
         reads_processed += stats[0];
         reads_read += stats[1];
-        /*
+
         auto t = task!extractReads( bamfile, 
 									record, 
 									estimated_insertsize, 
@@ -203,7 +272,7 @@ int main(string[] args) {
 									reader_pool, 
 									bamout );
         reader_pool.put(t);
-        */
+
         CallRegion cr = new CallRegion();
         cr.bed = record;
     	records_processed++;
@@ -214,7 +283,8 @@ int main(string[] args) {
     			 records_processed, reads_processed, time_used/1000, reads_processed*1000/time_used, reads_read/time_used);
     	}
     }
-    
+    */
+       
     /*
         read region definitions,
         sort the regions by chromosome/contig, start
@@ -227,7 +297,7 @@ int main(string[] args) {
         annotate regions (DEL, INS, INV, ITX, CTC etc.)
         write vcf file
     */
-    
+
     return 0;
 }
 
