@@ -43,7 +43,13 @@ void printBedRegion(string reference_name, ref DiscordantRegion bed ) {
     }
 }
 
-void makeRegion(BamReader bam, ReferenceSequenceInfo reference_sequence, ushort cutoff_min, ushort cutoff_max, ushort window_width) {
+void makeRegion(BamReader bam, 
+				ReferenceSequenceInfo reference_sequence, 
+				ushort cutoff_min, 
+				ushort cutoff_max, 
+				ushort window_width,
+				uint estimated_insertsize, 
+				uint estimated_insertsize_stdev) {
     auto reads = bam[ cast(string) reference_sequence.name() ][1 .. reference_sequence.length];
     auto pileup = makePileup(reads, true);
 
@@ -52,14 +58,17 @@ void makeRegion(BamReader bam, ReferenceSequenceInfo reference_sequence, ushort 
     DiscordantRegion bed = new DiscordantRegion();
         
     foreach (column; pileup) {
-        auto coverage = 0;
+        auto total_coverage = 0;
+        auto normal_coverage = 0;
         auto discordant_coverage = 0;
         
-        foreach (read; column.reads) {
+        foreach (BamRead read; column.reads) {
+        	total_coverage++;
+        	
             if( is_concordant(read) && has_minimum_quality(read, 20) ) {
-                coverage++;
+                normal_coverage++;
             }
-            if (!is_concordant(read) && has_minimum_quality(read, 20) ) {
+            if ( isDiscordant(read, estimated_insertsize, estimated_insertsize_stdev ) ) {
                 discordant_coverage++;
             }
         }
@@ -80,7 +89,7 @@ void makeRegion(BamReader bam, ReferenceSequenceInfo reference_sequence, ushort 
             
             if ( same_chrom && in_window ) {
                 bed.end = column.position;
-                bed.addCoverage( cast(ushort) coverage );
+                bed.addCoverage( cast(ushort) normal_coverage );
                 bed.addCoverageDiscordant( cast(ushort) discordant_coverage );
             }
             else {
@@ -88,20 +97,34 @@ void makeRegion(BamReader bam, ReferenceSequenceInfo reference_sequence, ushort 
                     // report only if we were working on a bed track.
                     // and if we have logical results
                     printBedRegion( bam.reference_sequences[bed.chromosome].name, bed );
+                    
                 }
 
                 // start new bed track for the new region
                 bed.startReporting( cast(ushort) column.ref_id, column.position, column.position );
+                
             }
         }
     }
 }
 
-void makeRegion(string bamfile, ReferenceSequenceInfo reference_sequence, ushort cutoff_min, ushort cutoff_max, ushort window_width) {
+void makeRegion(string bamfile, 
+				ReferenceSequenceInfo reference_sequence, 
+				ushort cutoff_min, 
+				ushort cutoff_max, 
+				ushort window_width,
+				uint estimated_insertsize, 
+				uint estimated_insertsize_stdev) {
     auto tp = new TaskPool(2);
     scope(exit) tp.finish();
     auto bam = new BamReader(bamfile, tp);
-    makeRegion(bam, reference_sequence, cutoff_min, cutoff_max, window_width);
+    makeRegion(bam, 
+    			reference_sequence, 
+				cutoff_min, 
+				cutoff_max, 
+				window_width,
+				estimated_insertsize, 
+				estimated_insertsize_stdev);
 }
 
 void printUsage() {
@@ -115,6 +138,10 @@ void printUsage() {
     stderr.writeln("                    low threshold for reads covering a breakpoint [4]");
     stderr.writeln("         -h, --cutoff_max");
     stderr.writeln("                    high threshold for reads covering a breakpoint [90]");
+    stderr.writeln("         -i, --insertsize");
+    stderr.writeln("                    insertsize of the input bam [450]");
+    stderr.writeln("         -s, --insertsd");
+    stderr.writeln("                    stdev in the insertsize [15]");
     stderr.writeln("         -v, --verbose");
     stderr.writeln("                    Turn on verbose mode");
 }
@@ -125,6 +152,8 @@ int main(string[] args) {
     ushort window_width = 200;
     ushort cutoff_max = 90;
     ushort cutoff_min = 4;
+    uint estimated_insertsize = 450;
+    uint estimated_insertsize_stdev = 15;
     bool verbose;
 
     getopt(
@@ -134,6 +163,8 @@ int main(string[] args) {
         "window|w", &window_width,   // numeric
         "cutoff_max|h", &cutoff_max, // numeric
         "cutoff_min|l", &cutoff_min, // numeric
+        "insertsize|i", &estimated_insertsize, // numeric
+        "insertsd|s", &estimated_insertsize_stdev, // numeric
         "verbose|v", &verbose,       // flag
         );
 
@@ -151,12 +182,17 @@ int main(string[] args) {
     scope(exit) task_pool.finish();
     
     string bamfile = args[1];
-    auto bam = new BamReader(bamfile);
-
+    auto src = new BamReader(bamfile);
     
-    foreach (refseq; bam.reference_sequences) {
+    foreach (refseq; src.reference_sequences) {
 //      writefln("Starting thread for %s", refseq);
-        auto t = task!makeRegion(bamfile, refseq, cutoff_min, cutoff_max, window_width);
+        auto t = task!makeRegion(bamfile, 
+        						refseq, 
+    							cutoff_min, 
+    							cutoff_max, 
+    							window_width,
+    							estimated_insertsize, 
+    							estimated_insertsize_stdev);
         task_pool.put(t);
         }
 

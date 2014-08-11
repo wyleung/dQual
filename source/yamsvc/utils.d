@@ -12,7 +12,7 @@ bool is_concordant( BamRead read ) {
 		case 163:
 			return true;
 		default:
-		return false;
+			return false;
 	}
 	return false;
 }
@@ -22,6 +22,23 @@ bool has_minimum_quality( BamRead read, int minQuality ) {
 	return read.mapping_quality >= minQuality;
 }
 
+bool has_abnormal_isize( BamRead read, uint isize, uint stdev ) {
+	if( ( abs(read.template_length) > ( isize + ( 2 * stdev ) ) ) || 
+		( abs(read.template_length) < ( isize - ( 2 * stdev ) ) ) ) {
+		return true;
+	}
+	return false;
+}
+
+bool isDiscordant( BamRead read, uint estimated_insertsize, uint estimated_insertsize_stdev ) {
+	return (
+	(
+	 has_minimum_quality(read, 20) &&
+	 read.is_paired &&
+	 !(read.mate_is_unmapped) && 
+	 (!is_concordant(read) || has_abnormal_isize(read, estimated_insertsize, estimated_insertsize_stdev)) )
+	 );
+}
 
 struct BedRecord {
 	string chromosome;
