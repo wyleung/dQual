@@ -3,7 +3,7 @@
 ######
 
 D_COMPILER = ldmd2
-D_FLAGS =--compiler=$(D_COMPILER) -O2 -debug --build-only -cov -Ithirdparty/sambamba -Ithirdparty/BioD
+D_FLAGS =--compiler=$(D_COMPILER) -O2 -release --build-only -cov -Ithirdparty/sambamba -Ithirdparty/BioD
 
 THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
 MAKEFILE_DIR := $(realpath $(dir $(realpath $(THIS_MAKEFILE))))
@@ -16,7 +16,7 @@ uname_P := $(shell sh -c 'uname -p 2>/dev/null || echo not')
 uname_V := $(shell sh -c 'uname -v 2>/dev/null || echo not')
 
 PWD := $(MAKEFILE_DIR)
-BUILD_DIR := $(abspath $(MAKEFILE_DIR)/../build/$(uname_S)_$(uname_M))
+BUILD_DIR := $(abspath $(MAKEFILE_DIR)/build/$(uname_S)_$(uname_M))
 OUT_DIR := $(abspath $(MAKEFILE_DIR)/bin)
 
 INSTALL := install
