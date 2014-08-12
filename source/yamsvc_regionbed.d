@@ -14,12 +14,11 @@
 */
 
 
-import std.getopt;
-import std.stdio;
-import std.parallelism;
 import std.algorithm : count, max, reduce;
+import std.getopt;
 import std.math : abs;
-
+import std.parallelism;
+import std.stdio;
 
 // public import sambamba.view;
 
@@ -29,6 +28,7 @@ import bio.bam.read;
 import bio.bam.writer;
 
 import yamsvc.utils;
+import yamsvc.datatypes;
 
 void printBedRegion(string reference_name, ref DiscordantRegion bed ) {
     if ( bed.length() && bed.maxCoverageDiscordant() ) {
@@ -44,12 +44,12 @@ void printBedRegion(string reference_name, ref DiscordantRegion bed ) {
 }
 
 void makeRegion(BamReader bam, 
-				ReferenceSequenceInfo reference_sequence, 
-				ushort cutoff_min, 
-				ushort cutoff_max, 
-				ushort window_width,
-				uint estimated_insertsize, 
-				uint estimated_insertsize_stdev) {
+                ReferenceSequenceInfo reference_sequence, 
+                ushort cutoff_min, 
+                ushort cutoff_max, 
+                ushort window_width,
+                uint estimated_insertsize, 
+                uint estimated_insertsize_stdev) {
     auto reads = bam[ cast(string) reference_sequence.name() ][1 .. reference_sequence.length];
     auto pileup = makePileup(reads, true);
 
@@ -63,8 +63,8 @@ void makeRegion(BamReader bam,
         auto discordant_coverage = 0;
         
         foreach (BamRead read; column.reads) {
-        	total_coverage++;
-        	
+            total_coverage++;
+            
             if( is_concordant(read) && has_minimum_quality(read, 20) ) {
                 normal_coverage++;
             }
@@ -109,22 +109,24 @@ void makeRegion(BamReader bam,
 }
 
 void makeRegion(string bamfile, 
-				ReferenceSequenceInfo reference_sequence, 
-				ushort cutoff_min, 
-				ushort cutoff_max, 
-				ushort window_width,
-				uint estimated_insertsize, 
-				uint estimated_insertsize_stdev) {
-    auto tp = new TaskPool(2);
+                ReferenceSequenceInfo reference_sequence, 
+                ushort cutoff_min, 
+                ushort cutoff_max, 
+                ushort window_width,
+                uint estimated_insertsize, 
+                uint estimated_insertsize_stdev) {
+    auto tp = new TaskPool(4);
     scope(exit) tp.finish();
     auto bam = new BamReader(bamfile, tp);
+    auto input_buf_size = 64_000_000;
+    bam.setBufferSize(input_buf_size);
     makeRegion(bam, 
-    			reference_sequence, 
-				cutoff_min, 
-				cutoff_max, 
-				window_width,
-				estimated_insertsize, 
-				estimated_insertsize_stdev);
+                reference_sequence, 
+                cutoff_min, 
+                cutoff_max, 
+                window_width,
+                estimated_insertsize, 
+                estimated_insertsize_stdev);
 }
 
 void printUsage() {
@@ -172,11 +174,6 @@ int main(string[] args) {
         printUsage();
         return 0;
     }
-    
-    // free some threads for the bamreader, which also uses a Taskpool for reading operations11
-    n_threads = n_threads > 5 ? n_threads - 2 : n_threads;
-    // this a dangerous operation, what if we still overuse the amount of 'threads' on the host sytem?
-
 
     auto task_pool = new TaskPool(n_threads);
     scope(exit) task_pool.finish();
@@ -187,12 +184,12 @@ int main(string[] args) {
     foreach (refseq; src.reference_sequences) {
 //      writefln("Starting thread for %s", refseq);
         auto t = task!makeRegion(bamfile, 
-        						refseq, 
-    							cutoff_min, 
-    							cutoff_max, 
-    							window_width,
-    							estimated_insertsize, 
-    							estimated_insertsize_stdev);
+                                refseq, 
+                                cutoff_min, 
+                                cutoff_max, 
+                                window_width,
+                                estimated_insertsize, 
+                                estimated_insertsize_stdev);
         task_pool.put(t);
         }
 

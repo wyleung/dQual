@@ -1,11 +1,16 @@
 module yamsvc.utils;
 
-import std.algorithm : count, max, reduce;
+import std.algorithm;
+import std.stdio;
+import std.parallelism;
 import std.math : abs;
+import std.stream;
 
 
 
 import bio.bam.read;
+import bio.bam.writer;
+
 import sambamba.utils.common.bed;
 import sambamba.utils.common.filtering;
 
@@ -48,81 +53,6 @@ bool isDiscordant( BamRead read, uint estimated_insertsize, uint estimated_inser
 	 );
 }
 
-struct BedRecord {
-	string chromosome;
-	ulong start;
-	ulong end;
-	string infofields;
-}
-
-class DiscordantRegion {
-	ulong start = 0;
-	ulong end = 0;
-	short chromosome=-1;
-	ushort[] coverages_discordant;
-	ushort[] coverages;
-	bool working;
-	
-	void addCoverage( ushort cov ) {
-		this.coverages ~= cov;
-	}
-	
-	void addCoverageDiscordant( ushort cov ) {
-		this.coverages_discordant ~= cov;
-	}
-	
-	ushort maxCoverage(){
-		if(this.coverages.length){
-			return reduce!(max)(this.coverages);
-		} else {
-			return 0;
-		}
-	}
-	
-	ushort maxCoverageDiscordant(){
-		if(this.coverages_discordant.length){
-			return reduce!(max)(this.coverages_discordant);
-		} else {
-			return 0;
-		}
-	}
-	
-	ushort avgCoverage(){
-		/* FIXME: cast from ulong to int is not so performing? 
-			We are only interested in coverages upto ushort (65,535) large?
-		*/
-		auto sum = reduce!((a,b) => a + b)(0, this.coverages);
-		if( sum == 0 ) {
-			return 0;
-		}
-		return cast(ushort) abs(sum / this.coverages.length);
-	}
-	
-	void resetCoverage() {
-		/*
-			Empty the coverages for a new region run
-		*/
-		this.coverages = [];
-		this.coverages_discordant = [];
-	}
-	
-	ulong length() {
-		return this.end - this.start;
-		
-	}
-	
-	void startReporting( ushort ref_id, ulong start, ulong end ) {
-		this.working = true;
-		this.chromosome = ref_id;
-		this.start = start;
-		this.end = end;
-		this.resetCoverage();
-	}
-	void startReporting( ) {
-		this.working = true;
-	}
-}
-
 
 // from sambamba/view.d (r4b7d32ba0de49f26d4ba0de8ba8b1e43c75bc50f)
 
@@ -135,6 +65,37 @@ void runProcessor(SB, R, F, P)(SB bam, R reads, F filter, P processor) {
         processor.process(reads.filtered(filter), bam);
 }
 
+final class BamSerializer {
+	/*
+		This version is not Windows Compatible
+	*/
+    private string _f;
+    private int _level;
+    private TaskPool _task_pool;
+    private enum BUFSIZE = 4096;//1_048_576;
+
+
+    this(string f, int compression_level, TaskPool pool) {
+        _f = f;
+        _level = compression_level;
+        _task_pool = pool;
+    }
+
+    enum is_serial = true;
+
+    void process(R, SB)(R reads, SB bam) 
+    {
+        Stream output_stream = new BufferedFile(_f, FileMode.OutNew, 
+                                                BUFSIZE);
+        auto writer = new BamWriter(output_stream, _level, _task_pool);
+        scope(exit) writer.finish();
+
+        writer.writeSamHeader(bam.header);
+        writer.writeReferenceSequenceInfo(bam.reference_sequences);
+        foreach (read; reads)
+            writer.writeRecord(read);
+    }
+}
 
 import bio.bam.region;
 

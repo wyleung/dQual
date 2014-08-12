@@ -11,35 +11,34 @@
     The YAMSVC caller in the D-language. Ported from the Python version.  
 */
 
-
-import std.getopt;
-import std.datetime;
-import std.stdio;
-import std.parallelism;
+//import core.memory;
 import std.algorithm;
-import std.math : abs;
-import std.csv;
-import std.string;
-import std.file;
 import std.concurrency;
+import std.csv;
+import std.datetime;
+import std.getopt;
+import std.math : abs;
+import std.parallelism;
 import std.path;
-import std.file;
-//import std.stream;
 import std.stdio;
+import std.string;
 
-import bio.bam.referenceinfo;
+//import std.file;
+//import std.stream;
 
-import bio.bam.reader;
 import bio.bam.pileup;
 import bio.bam.read;
+import bio.bam.reader;
+import bio.bam.referenceinfo;
 import bio.bam.writer;
 
 import sambamba.utils.common.filtering;
-import sambamba.utils.view.alignmentrangeprocessor;
+
 import yamsvc.utils;
+import yamsvc.datatypes;
 
 void printUsage() {
-    stderr.writeln("Usage: yamsvp-caller [options] <input.bam | input.sam>");
+    stderr.writeln("Usage: yamsvc-caller [options] <input.bam | input.sam>");
     stderr.writeln();
     stderr.writeln("Options: -T, --threads=NTHREADS");
     stderr.writeln("                    maximum number of threads to use");
@@ -57,77 +56,35 @@ void printUsage() {
     stderr.writeln("                    Turn on verbose mode");
 }
 
-class CallRegion {
-    BedRecord bed;
-    
-    uint[] mate_chromosome;
-    ulong[] mate_positions;
-    uint[] insertsizes;
-    uint clusterID;
-    ushort[] orientations;
-    uint start;
-    uint end;
-    
-    uint[][] adj_pos;
-    
-    /* not necessary needed, only when this is re-evaluated for the 2nd time */
-    void adjust_pos ( uint s_pos, uint e_pos ) {
-        this.adj_pos ~= [s_pos, e_pos]; 
-    }
-    
-    void addOrientation( short orientation ) {
-        this.orientations ~= orientation;
-    }
-    
-    void add_matechromosome( uint matechr ) {
-        this.mate_chromosome ~= matechr;
-    }
-    void add_mate_pos( ulong matepos ) {
-        this.mate_positions ~= matepos;
-    }
-
-    void addInsertsize( uint insertsize ) {
-        this.insertsizes ~= abs(insertsize);
-    }
-
-    @property uint avgInsertsize(){
-        auto sum = reduce!((a,b) => a + b)(0, this.insertsizes);
-        if( sum == 0 ) {
-            return 0;
-        }
-        return cast(uint) abs(sum / this.insertsizes.length);
-    }
-}
-
 uint[] extractReads( string bamfile, BedRecord bed, 
-					uint estimated_insertsize, uint estimated_insertsize_stdev, 
-					TaskPool taskpool, BamWriter bamout ) {
+uint estimated_insertsize, uint estimated_insertsize_stdev, 
+TaskPool taskpool, BamWriter bamout ) {
     auto tp = new TaskPool(4);
     scope(exit) tp.finish();
     
-	auto bam = new BamReader(bamfile, tp);
+auto bam = new BamReader(bamfile, tp);
 
-	auto input_buf_size = 64_000_000;
-	bam.setBufferSize(input_buf_size);
-//	bam.assumeSequentialProcessing();
+    auto input_buf_size = 64_000_000;
+    bam.setBufferSize(input_buf_size);
+//bam.assumeSequentialProcessing();
 
-	auto reads = bam[ bed.chromosome ][cast(uint) bed.start .. cast(uint) bed.end];
+auto reads = bam[ bed.chromosome ][cast(uint) bed.start .. cast(uint) bed.end];
     auto reads_processed = 0;
     auto reads_read = 0;
 
     BamRead[] _reads;
 
     foreach( read; reads ) {
-    	reads_read++;
-	    if ( !isDiscordant(read, estimated_insertsize, estimated_insertsize_stdev ) ){
-	        /* We don't want to analyse concordant reads, only discordant are used for SV calling */
-	        continue;
-	    }
-		reads_processed++;
-		_reads ~= read;
+    reads_read++;
+    if ( !isDiscordant(read, estimated_insertsize, estimated_insertsize_stdev ) ){
+        /* We don't want to analyse concordant reads, only discordant are used for SV calling */
+        continue;
+    }
+reads_processed++;
+_reads ~= read;
     }
     foreach( r; _reads ){
-	    bamout.writeRecord( r );
+    bamout.writeRecord( r );
     }
     
     return [reads_processed, reads_read];
@@ -161,15 +118,15 @@ int main(string[] args) {
     
     auto reader_pool = new TaskPool(n_threads);
     scope(exit) reader_pool.finish();
-
-    auto writer_pool = new TaskPool(n_threads);
-    scope(exit) writer_pool.finish();
+//
+//    auto writer_pool = new TaskPool(n_threads);
+//    scope(exit) writer_pool.finish();
     
     string bamfile = args[1];
     BamReader bam = new BamReader(bamfile, reader_pool);
     // the buf-size is in bytes, 64 Kb = 1024 * 1024 * 64
-	auto input_buf_size = 64_000_000;
-	bam.setBufferSize(input_buf_size);
+auto input_buf_size = 32_000_000;
+bam.setBufferSize(input_buf_size);
     
     /*
     ulong output_buf_size = 32_000_000;
@@ -180,36 +137,35 @@ int main(string[] args) {
     bamout.writeSamHeader(bam.header);         // copy header and reference sequence info
     bamout.writeReferenceSequenceInfo(bam.reference_sequences);
     */
-
-    File bam_output; 
-    if (bam_outputfilename is null)
-        bam_output = stdout;
-    else
-        bam_output = File(bam_outputfilename, "w+");
-
-//    scope (exit) bam_output.close();
+//
+//    File bam_outputfile; 
+//    if (bam_outputfilename is null)
+//        bam_outputfile = stdout;
+//    else
+//        bam_outputfile = File(bam_outputfilename, "w+");
+//    
 
     Filter read_filter = new NullFilter();
     read_filter = new AndFilter(read_filter, new ValidAlignmentFilter());
     
     Filter only_mapped = new AndFilter(
-						new NotFilter(new FlagFilter!"is_unmapped"()), 
-						new NotFilter(new FlagFilter!"mate_is_unmapped"())
-	);
+new NotFilter(new FlagFilter!"is_unmapped"()), 
+new NotFilter(new FlagFilter!"mate_is_unmapped"())
+);
     
     Filter quality = new IntegerFieldFilter!">="("mapping_quality", 20);
     
     Filter flags = new NotFilter(
-			    	new OrFilter( new AlignmentFlagFilter!"=="(99), 
-		    		new OrFilter( new AlignmentFlagFilter!"=="(147), 
-	    			new OrFilter( new AlignmentFlagFilter!"=="(83), 
-	    							new AlignmentFlagFilter!"=="(163) ) ) )
-	);
+    new OrFilter( new AlignmentFlagFilter!"=="(99), 
+    new OrFilter( new AlignmentFlagFilter!"=="(147), 
+    new OrFilter( new AlignmentFlagFilter!"=="(83), 
+    new AlignmentFlagFilter!"=="(163) ) ) )
+);
     
     Filter template_size = new OrFilter( 
-							new TemplateSizeFilter!">="( (estimated_insertsize + ( 2 * estimated_insertsize_stdev )) ),
-							new TemplateSizeFilter!"<="( (estimated_insertsize - ( 2 * estimated_insertsize_stdev )) )
-	);
+new TemplateSizeFilter!">="( (estimated_insertsize + ( 2 * estimated_insertsize_stdev )) ),
+new TemplateSizeFilter!"<="( (estimated_insertsize - ( 2 * estimated_insertsize_stdev )) )
+);
     
     
     read_filter = new AndFilter(read_filter, only_mapped);
@@ -221,69 +177,34 @@ int main(string[] args) {
     
     */
 
+    int processAlignments(P)(P processor) {
+    
+        void runProcessor(SB, R, F)(SB bam, R reads, F filter) {
+            if (processor.is_serial)
+                bam.assumeSequentialProcessing();
+    writeln("Before processing ");
+            if (cast(NullFilter) filter)
+                processor.process(reads, bam);
+            else
+                processor.process(reads.filtered(filter), bam);
+    writeln("After processing ");
+        }
+        
     // adapted from sambamba
     auto regions = parseBed(bed_filename, bam);
     auto reads = bam.getReadsOverlapping(regions);
-    runProcessor(bam, reads, read_filter, new BamSerializer(bam_output, cast(int) compression_level, writer_pool));
+    writeln("After reads");
     
-
-
-
-    return 0;
-    
-/*    
-    
-    // old approach
-
-    // open a bed file
-    auto bedrecords = readText(bed_filename);
-    auto records = csvReader!BedRecord(bedrecords, null , '\t');
-    
-    auto reads_processed = 0;
-    auto reads_read = 0;
-    auto records_processed = 0;
-    
-    
-    stderr.writeln("Looping over bed records");
-    StopWatch sw;
-    sw.start();
-    
-    foreach(record; records){
-        // select the discordant reads from this region
-        if (record.end <= record.start) {
-        	auto e = record.start;
-        	record.start = record.end;
-        	record.end = e+1;
-        } 
-        auto stats = extractReads( bamfile, 
-					record, 
-					estimated_insertsize, 
-					estimated_insertsize_stdev, 
-					reader_pool, 
-					bamout );
-        
-        reads_processed += stats[0];
-        reads_read += stats[1];
-
-        auto t = task!extractReads( bamfile, 
-									record, 
-									estimated_insertsize, 
-									estimated_insertsize_stdev, 
-									reader_pool, 
-									bamout );
-        reader_pool.put(t);
-
-        CallRegion cr = new CallRegion();
-        cr.bed = record;
-    	records_processed++;
-    	
-    	if ( records_processed % 500 == 0 ) {
-    		auto time_used = sw.peek().msecs;
-    		writefln( "Processed %d bed records, exported %d reads in %d seconds, avg. %d read/sec, read %d reads/msec",
-    			 records_processed, reads_processed, time_used/1000, reads_processed*1000/time_used, reads_read/time_used);
-    	}
+runProcessor(bam, reads, read_filter);
+    writeln("Before return");
+return 0;
     }
-    */
+
+writeln("here");
+int stat =processAlignments(new BamSerializer(bam_outputfilename, cast(int) compression_level, reader_pool));
+writeln("before exit");
+return stat;
+
        
     /*
         read region definitions,
@@ -297,7 +218,5 @@ int main(string[] args) {
         annotate regions (DEL, INS, INV, ITX, CTC etc.)
         write vcf file
     */
-
-    return 0;
 }
 
