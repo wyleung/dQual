@@ -3,7 +3,7 @@
 ######
 
 D_COMPILER = ldmd2
-D_FLAGS =--compiler=$(D_COMPILER) -Ithirdparty/BioD -O2 -debug -inline -cov -Ithirdparty/sambamba -Isource
+D_FLAGS =--compiler=$(D_COMPILER) -O2 -debug -inline -cov -Ithirdparty/sambamba -Ithirdparty/BioD
 
 THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
 MAKEFILE_DIR := $(realpath $(dir $(realpath $(THIS_MAKEFILE))))

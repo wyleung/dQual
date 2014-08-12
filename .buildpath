@@ -3,4 +3,6 @@
 	<buildpathentry kind="con" path="org.eclipse.dltk.launching.INTERPRETER_CONTAINER"/>
 	<buildpathentry kind="con" path="org.dsource.ddt.ide.core.DubContainer"/>
 	<buildpathentry kind="src" path="source"/>
+	<buildpathentry kind="src" path="thirdparty/BioD"/>
+	<buildpathentry kind="src" path="thirdparty/sambamba"/>
 </buildpath>

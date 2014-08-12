@@ -1,16 +1,17 @@
  {
 	"name" : "yamsvc",
+	"importPaths": [
+			"source/",
+			"thirdparty/BioD/",
+			"thirdparty/sambamba/"
+		],
 	"description" : "Quality checks in D using BioD",
 	"authors": ["Wai Yi Leung"],
 	"dflags-dmd": ["-vtls"],
 	"lflags": ["--force", "--compiler=ldmd2", "--build-only", "-O2", "-release"],
-	"targetName": "yamsvc-",
+	"targetName": "yamsvc",
 	"targetPath": "./build",
 	"license": "MIT",
 	"dependencies" : {
-	},
-	"subPackages": [
-		"./thirdparty/BioD",
-		"./thirdparty/sambamba",
-	]
+	}
 }
