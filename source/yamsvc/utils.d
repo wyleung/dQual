@@ -3,10 +3,8 @@ module yamsvc.utils;
 import std.algorithm;
 import std.stdio;
 import std.parallelism;
-import std.math : abs;
+import std.math;
 import std.stream;
-
-
 
 import bio.bam.read;
 import bio.bam.writer;
@@ -118,7 +116,8 @@ BamRegion[] parseBed(Reader)(string bed_filename, Reader bam, bool non_overlappi
 // flag filtering extended from sambamba
 
 
-/// Filtering integer fields
+// Filtering integer fields
+// based on the filters defined by sambamba 
 final class AlignmentFlagFilter(string op) : Filter {
     private long _value;
     this(long value) {
@@ -140,3 +139,105 @@ final class TemplateSizeFilter(string op) : Filter {
     }
 }
 
+struct Histogram {
+public:
+	void add( T )( T value ) {
+		this.vals[ cast(uint) std.math.abs(value) ] += 1;
+		this.total_count += 1;
+	}
+	
+	@property uint[uint] raw() {
+		return this.vals;
+	}
+	
+    @property long size() {
+        return this.total_count;
+    }
+    
+    @property long width() {
+        return this.vals.length;
+    }
+    
+    @property double mean() {
+        auto sum = 0;
+        foreach(k,v; this.vals){
+            sum += k*v;
+        }
+        return cast(double)(sum / this.size);
+    }
+    
+    @property uint q25() {
+        return this._q25;
+    }
+    
+    @property uint q50() {
+        return this._q50;
+    }
+    
+    @property uint q75() {
+        return this._q75;
+    }
+    
+    @property double sd() {
+        return this._sd;
+    }
+    
+    uint[] _recompute() {
+        auto q25_pos = this.size / 4;
+        auto q50_pos = q25_pos*2;
+        auto q75_pos = q25_pos*3;
+
+        auto keys = this.vals.keys.sort;
+        auto n_seen = 0;
+        foreach( k; keys ) {
+            foreach( val; 1 .. this.vals[k] ){
+                ++n_seen;
+//                writeln(n_seen);
+//                writeln(q25_pos);
+//                writeln(q50_pos);
+//                writeln(q75_pos);
+//                writeln(this._q75);
+
+                if( n_seen == q25_pos ) {
+                    this._q25 = k;
+                }
+                if( n_seen == q50_pos ) {
+                    this._q50 = k;
+                }
+                if( n_seen == q75_pos ) {
+                    this._q75 = k;
+                }
+            }
+        }            
+        this._sd = (this._q75 - this._q25) / 2 / 0.6744898;
+        return [this._q25,this._q50,this._q75];
+    }
+
+	@property uint median() {
+		auto mid = cast(uint) (this.size / 2);
+		auto keys = this.vals.keys.sort;
+		auto n_seen = 0;
+		foreach( k; keys ) {
+		    foreach( val; 1 .. this.vals[k] ){
+		        mid--;
+                if( mid == 0 ) {
+                    this._median = k;
+                    this._q50 = k;
+                    return k;
+                }
+		    }
+		}
+		return 0;
+	}
+	
+private:
+	uint[ uint ] vals;
+	uint total_count = 0;
+    uint _q25 = 0;
+    uint _q50 = 0;
+    uint _q75 = 0;
+    uint _mean = 0;
+    uint _median = 0;
+    double _sd = 0;
+    
+}
