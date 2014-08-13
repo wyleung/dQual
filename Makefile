@@ -21,7 +21,7 @@ OUT_DIR := $(abspath $(MAKEFILE_DIR)/bin)
 
 INSTALL := install
 
-PROGRAMS := yamsvc-regionbed fastq-seqstat yamsvc-caller
+PROGRAMS := yamsvc yamsvc-regionbed fastq-seqstat yamsvc-caller
 TARGET_BINS := $(addprefix $(BUILD_DIR)/, $(PROGRAMS))
 
 INCL_OBJS := source/yamsvc/utils.d
@@ -34,6 +34,9 @@ install: all
 
 $(BUILD_DIR): 
 	mkdir -p $@
+
+$(BUILD_DIR)/yamsvc: source/yamsvc_main.d $(INCL_OBJS) | $(BUILD_DIR)
+	rdmd --force $(D_FLAGS) -of$@ $<
 
 $(BUILD_DIR)/yamsvc-regionbed: source/yamsvc_regionbed.d $(INCL_OBJS) | $(BUILD_DIR)
 	rdmd --force $(D_FLAGS) -of$@ $<
