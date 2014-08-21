@@ -182,6 +182,22 @@ public:
         return this._sd;
     }
     
+    @property uint min() {
+        auto keys = this.vals.keys.sort;
+        return keys[0];
+    }
+    @property uint max() {
+        auto keys = this.vals.keys.sort;
+        return keys[ keys.length - 1 ];
+    }
+    
+    @property void flat_histogram() {
+        auto keys = this.vals.keys.sort;
+        foreach(k; keys){
+        	writefln( "%s: %d", k, this.vals[k] );
+    	}
+	}
+    
     uint[] _recompute() {
         auto q25_pos = this.size / 4;
         auto q50_pos = q25_pos*2;

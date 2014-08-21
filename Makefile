@@ -3,7 +3,7 @@
 ######
 
 D_COMPILER = ldmd2
-D_FLAGS =--compiler=$(D_COMPILER) -O2 -release --build-only -cov -Ithirdparty/sambamba -Ithirdparty/BioD
+D_FLAGS =--compiler=$(D_COMPILER) -O2 -release --build-only -cov -Ithirdparty/sambamba -Ithirdparty/BioD -Isource
 
 THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
 MAKEFILE_DIR := $(realpath $(dir $(realpath $(THIS_MAKEFILE))))
@@ -24,7 +24,7 @@ INSTALL := install
 PROGRAMS := yamsvc yamsvc-regionbed fastq-seqstat yamsvc-caller
 TARGET_BINS := $(addprefix $(BUILD_DIR)/, $(PROGRAMS))
 
-INCL_OBJS := source/yamsvc/utils.d
+INCL_OBJS := source/yamsvc/utils.d source/yamsvc/datatypes.d
 
 
 all: $(TARGET_BINS)
