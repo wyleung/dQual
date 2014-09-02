@@ -21,7 +21,7 @@ OUT_DIR := $(abspath $(MAKEFILE_DIR)/bin)
 
 INSTALL := install
 
-PROGRAMS := yamsvc yamsvc-regionbed fastq-seqstat yamsvc-caller
+PROGRAMS := yamsvc yamsvc-caller yamsvc-regionbed fastq-seqstat fastqgz-seqstat
 TARGET_BINS := $(addprefix $(BUILD_DIR)/, $(PROGRAMS))
 
 INCL_OBJS := source/yamsvc/utils.d source/yamsvc/datatypes.d
@@ -45,6 +45,9 @@ $(BUILD_DIR)/yamsvc-caller: source/yamsvc_caller.d $(INCL_OBJS) | $(BUILD_DIR)
 	rdmd --force $(D_FLAGS) -of$@ $<
 
 $(BUILD_DIR)/fastq-seqstat: source/fastq/seqstat.d $(INCL_OBJS) | $(BUILD_DIR)
+	rdmd --force $(D_FLAGS) -of$@ $<
+
+$(BUILD_DIR)/fastqgz-seqstat: source/fastq/test.d $(INCL_OBJS) | $(BUILD_DIR)
 	rdmd --force $(D_FLAGS) -of$@ $<
 
 .PHONY: clean
