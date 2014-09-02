@@ -14,6 +14,8 @@
 */
 
 
+import core.atomic;
+
 import std.algorithm;
 import std.getopt;
 import std.math;
@@ -31,14 +33,14 @@ import yamsvc.utils;
 import yamsvc.datatypes;
 
 void printBedRegion(string reference_name, ref DiscordantRegion bed ) {
-    if ( bed.length() && bed.maxCoverageDiscordant() ) {
+    if ( bed.size && bed.maxCoverageDiscordant() ) {
         writefln("%s\t%d\t%d\tDP=%d;DPdis=%d;CLEN=%d", 
             reference_name, 
             bed.start, 
             bed.end+1, 
             bed.avgCoverage(), 
             bed.maxCoverageDiscordant(), 
-            bed.length()
+            bed.size
         );
     }
 }
@@ -59,7 +61,7 @@ void makeRegion(BamReader bam,
 
     string bam_outputfilename = "/tmp/" ~ cast(string)(reference_sequence.name()) ~ ".bam";
         
-    DiscordantRegion bed = new DiscordantRegion();
+    DiscordantRegion bed = new DiscordantRegion(0);
     BamRegion[] regions;
 
     foreach (column; pileup) {
@@ -175,6 +177,101 @@ void makeRegion(BamReader bam,
     }
 
 }
+                
+struct ReadInfo {
+	/**
+		Lightweigth version of the $(bio.bam.read.BamRead),
+		This version can be stored in memory with the essential information
+	*/
+	int ref_id;
+	int pos;
+	int basesCovered;
+	ushort flag;
+	string name;
+	
+	@property uint end() {
+	    return this.pos+this.basesCovered;
+	    }
+	
+    this( int ref_id, int pos, int basesCovered, ushort flag, string name ) {
+    	this.ref_id = ref_id;
+    	this.pos = pos;
+    	this.basesCovered = basesCovered;
+    	this.flag = flag;
+    	this.name = name;
+    }
+}
+
+void extractReadInfo( BamReader bam, 
+                ReferenceSequenceInfo reference_sequence, 
+                ushort cutoff_min, 
+                ushort cutoff_max, 
+                ushort window_width,
+                uint estimated_insertsize, 
+                uint estimated_insertsize_stdev,
+                uint max_sd_degree, 
+                TaskPool tp) {
+    auto reads = bam[ cast(string) reference_sequence.name() ][1 .. reference_sequence.length];
+    
+    ReadInfo[] contigreads;
+    BamRead read;
+
+    // test how mush storage would be neede to store whole genome
+    while (!reads.empty) {
+        reads.popFront();
+        read = reads.front.dup;
+        if ( !isDiscordant(read, estimated_insertsize, estimated_insertsize_stdev ) ) {
+//            if (has_minimum_quality(read, 20)) {
+//                writeln("1. Has MAPQ: %d", read.mapping_quality);
+//            } else {
+//                writefln("----> 1. Failing MAPQ: %d", read.mapping_quality);
+//                }
+//            if (read.is_paired) {
+//                writeln("2. Read is paired");
+//                }
+//            if (!read.mate_is_unmapped) {
+//                writeln("3. Mate is mapped");
+//                }
+//            if (!is_concordant(read)) {
+//                writeln("4. Is not concordant");
+//            }
+//            if (has_abnormal_isize(read, estimated_insertsize, estimated_insertsize_stdev)) {
+//                writefln("5. Has abnormal isize: %d", read.template_length );
+//            }
+            continue;
+        }
+        bool found_read = false;
+        foreach(int j, ReadInfo cread; contigreads) {
+        	if(cread.name == read.name) {
+//              writefln("%s %s. %d - %d  = %d", cread.name, read.name, cread.end, read.position, read.position - cread.end );
+//              writefln("%s", read.toSam );
+//              writefln( "Found matching pair in %s name: %s", reference_sequence.name(), read.name );
+//              writefln("=================START REM (%d)============", contigreads.length);
+//              ReadInfo r = contigreads[ i ];
+//              writefln("Readname mem: %s", r.name);
+//              writefln("Readname for: %s", cread.name);
+//              writefln("Readname cur: %s", read.name);
+                found_read = true;
+                contigreads = std.algorithm.remove( contigreads, j );
+//              writefln("=================END REM (%d)============", contigreads.length);
+        		break;
+    		}
+    	}
+        if (!found_read) {
+            contigreads ~= ReadInfo(
+                    read.ref_id,
+                    read.position,
+                    read.basesCovered,
+                    read.flag, 
+                    read.name
+            );
+        } else {
+        	double progress = cast(double) read.position / cast(double) reference_sequence.length;
+        	writefln("%d reads in %s memory, %d/%d %0.5f", contigreads.length, reference_sequence.name(), read.position, reference_sequence.length, progress);
+    	}
+    }
+    writefln( "Reads: %d, size in mem: %d", contigreads.length, contigreads.sizeof );
+}
 
 void scanContig(string bamfile, 
                 ReferenceSequenceInfo reference_sequence, 
@@ -184,13 +281,27 @@ void scanContig(string bamfile,
                 uint estimated_insertsize, 
                 uint estimated_insertsize_stdev,
                 uint max_sd_degree,
-                TaskPool task_pool,
-                ref uint[] * sink) {
-    auto bam = new BamReader(bamfile, task_pool);
-    bam.setBufferSize(32_000_000);
-    *sink ~= cast(uint*)(1_000);
+                TaskPool task_pool) {
+    auto tp = new TaskPool(4);
+    scope(exit) tp.finish();
+    auto bam = new BamReader(bamfile, tp);
+    auto input_buf_size = 16_000_000;
+    bam.setBufferSize(input_buf_size);
     
-//
+    writefln("Starting analysis of %s", reference_sequence.name);
+//    auto bam = new BamReader(bamfile, task_pool);
+    writefln("Read bam %s for %s", bamfile, reference_sequence.name);
+//    bam.setBufferSize(32_000_000);
+    extractReadInfo(bam, 
+                reference_sequence, 
+                cutoff_min, 
+                cutoff_max, 
+                window_width,
+                estimated_insertsize, 
+                estimated_insertsize_stdev,
+                max_sd_degree, task_pool);
+    writefln("Finished extraction %s", reference_sequence.name);
+    
 //    makeRegion(bam, 
 //                reference_sequence, 
 //                cutoff_min, 
@@ -282,8 +393,6 @@ int main(string[] args) {
         return 0;
     }
 
-    uint[] output_array;
-
     auto task_pool = new TaskPool(n_threads);
     scope(exit) task_pool.finish();
     
@@ -296,7 +405,7 @@ int main(string[] args) {
     }
     
     
-    auto h = Histogram();
+    Histogram h = Histogram();
     auto _reads = src.reads;
     auto limit = reads_for_histogram;
     foreach( BamRead read; _reads) {
@@ -308,7 +417,7 @@ int main(string[] args) {
         if( !read.is_paired ) continue;
 
         limit--;
-        h.add( abs(read.template_length) );
+        h.add( std.math.abs(read.template_length) );
         if (limit == 0){
             break;
         }
@@ -332,15 +441,11 @@ int main(string[] args) {
                                 cutoff_min, 
                                 cutoff_max, 
                                 window_width,
-                                h.q50, 
-                                cast(uint) h.sd,
+                                estimated_insertsize, 
+                                estimated_insertsize_stdev,
                                 max_sd_degree,
-                                task_pool, 
-                                &output_array);
+                                task_pool);
         task_pool.put(t);
     }
-    
-    writeln(output_array);
-
     return 0;
 }

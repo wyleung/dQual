@@ -15,6 +15,7 @@ import std.array;
 import std.c.string;
 import std.conv;
 import std.digest.sha;
+import std.format;
 import std.json;
 import std.getopt;
 import std.math;
@@ -29,6 +30,7 @@ import bio.core.utils.outbuffer;
 import bio.core.utils.bylinefast;
 alias ByLineFast _LineRange;
 
+import yamsvc.gzip;
 import yamsvc.utils: Histogram;
 
 class SeqStat {
@@ -41,6 +43,7 @@ class SeqStat {
     private Histogram histo_read = Histogram();
     private Histogram histo_base = Histogram();
     private uint phred_correction = 33;
+    private string path;
     private string sha1sum;
 
     this() {
@@ -55,6 +58,10 @@ class SeqStat {
         writeln("Killed seqstat!");
         }
     
+    public void setPath( string s ) {
+    	this.path = s;
+	}
+
     public void setSHA1sum( string s ) {
     	this.sha1sum = toLower(s);
 	}
@@ -147,7 +154,7 @@ class SeqStat {
 //        writefln( "%s \t %s \t %s \t %s\n", this.bases, this.base_quality, this.reads, this.length );
 
         auto base_quals = appender!string();
-        base_quals.put("{");
+        base_quals.put("{\n");
         
         foreach( i; 0 .. this.base_quality.length ) {
             auto qval = i * 10u ? i * 10u : 1u;
@@ -156,7 +163,7 @@ class SeqStat {
         	base_quals.put( "\"" );
         	base_quals.put( ": " );
         	base_quals.put( to!string(this.base_quality[i]) );
-        	if( i == this.base_quality.length ) {
+        	if( i == this.base_quality.length-1 ) {
         		base_quals.put( "\n" );
         	}
         	else{
@@ -166,7 +173,7 @@ class SeqStat {
         base_quals.put("}");
         
         auto read_quals = appender!string();
-        read_quals.put("{");
+        read_quals.put("{\n");
         
         foreach( i; 0 .. this.read_quality.length ) {
             auto qval = i * 10u ? i * 10u : 1u;
@@ -175,7 +182,7 @@ class SeqStat {
         	read_quals.put( "\"" );
         	read_quals.put( ": " );
         	read_quals.put( to!string(this.read_quality[i]) );
-        	if( i == this.read_quality.length ) {
+        	if( i == this.read_quality.length-1 ) {
         		read_quals.put( "\n" );
         	}
         	else{
@@ -183,13 +190,16 @@ class SeqStat {
         	}
         }
         read_quals.put("}");
-        writefln("{
+        
+        auto writer = appender!string();
+        
+        formattedWrite(writer, "{
 	\"files\": {
 		\"fastq\": {
 			\"checksum_sha1\": \"%s\",
 			\"path\": \"%s\"
 		}
-	}
+	},
 	\"stats\": {
 		\"qual_encoding\": \"%s\",
 		\"bases\": {
@@ -207,7 +217,7 @@ class SeqStat {
 	}
 }", 
 		this.sha1sum,
-		"",
+		this.path,
 		this.phred_encoding,
         this.bases["N"],
 		base_quals.data,
@@ -218,6 +228,10 @@ class SeqStat {
         this.reads["total"],
         this.reads["N"]
         );
+        writeln(writer.data);
+
+        //		JSONValue myjson = parseJSON( writer.data );
+//		writeln(toJSON(&myjson, true));   
     }
 }
 
@@ -356,7 +370,17 @@ int main(string[] args) {
     auto task_pool = new TaskPool(n_threads);
     scope(exit) task_pool.finish();
     
-    File file = File(args[1], "r");
+    string input_file = args[1];
+    std.file.File file;
+    auto len = input_file.length;
+    if(input_file[len - 3 .. len] == ".gz") {
+        auto pipe = pipeShell("gunzip -c " ~ input_file);
+        file = pipe.stdout;
+//    	file = GzipByLine(input_file);
+	} else {
+    	file = File(input_file, "r");
+	}
+    
 
     SeqStat stats = new SeqStat();
 
@@ -369,9 +393,9 @@ int main(string[] args) {
     
     SHA1 sha;
     sha.start();
-    
-    while (file.readln(buf)) {
-        string name = cast(string)buf;
+    string line;
+    while ( (line = file.readln()) !is null ) {
+        string name = line;
         string sequence = file.readln();
         string holder = file.readln();
         string quality = file.readln();
@@ -383,25 +407,14 @@ int main(string[] args) {
             chomp(quality));
         countReads( read, ptr, stats, lock );
 
-//        sha.put(0);
         sha.put(cast(immutable(ubyte)[]) name);
         sha.put(cast(immutable(ubyte)[]) sequence);
         sha.put(cast(immutable(ubyte)[]) holder);
         sha.put(cast(immutable(ubyte)[]) quality);;
-        
-//        auto t = task!countReads( read, ptr, stats,  lock );
-////        t.executeInNewThread();
-//        task_pool.put(t);
-
-//      auto t = task!doStats( &stats, read, &reads_processed, lock );
-//      write(r.record);
-//      writefln("Read length: %d", r.length);
-//      writefln("Base qualities: %s", r.quals);
-//      writefln("Avg. quality: %d", r.avgqual);
-//      writefln("N bases: %d", r.n_bases);
     }
 
     task_pool.finish();
+    stats.setPath(args[1]);
     stats.setSHA1sum(toHexString(sha.finish()));
     stats.report();
     return 0;

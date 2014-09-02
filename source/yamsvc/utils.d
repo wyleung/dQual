@@ -142,15 +142,15 @@ final class TemplateSizeFilter(string op) : Filter {
 struct Histogram {
 public:
 	void add( T )( T value ) {
-		this.vals[ cast(uint) std.math.abs(value) ] += 1;
+		this.vals[ cast(int) value ] += 1;
 		this.total_count += 1;
 	}
 	
-	@property uint[uint] raw() {
+	@property int[uint] raw() {
 		return this.vals;
 	}
 	
-    @property long size() {
+    @property uint size() {
         return this.total_count;
     }
     
@@ -159,7 +159,7 @@ public:
     }
     
     @property double mean() {
-        auto sum = 0;
+        uint sum = 0;
         foreach(k,v; this.vals){
             sum += k*v;
         }
@@ -199,32 +199,30 @@ public:
 	}
     
     uint[] _recompute() {
-        auto q25_pos = this.size / 4;
-        auto q50_pos = q25_pos*2;
-        auto q75_pos = q25_pos*3;
+        uint q25_pos = this.size / 4;
+        uint q50_pos = q25_pos*2;
+        uint q75_pos = q25_pos*3;
 
         auto keys = this.vals.keys.sort;
-        auto n_seen = 0;
+        uint n_seen = 0;
         foreach( k; keys ) {
-            foreach( val; 1 .. this.vals[k] ){
+            foreach( val; 0 .. this.vals[k] ){
                 ++n_seen;
-//                writeln(n_seen);
-//                writeln(q25_pos);
-//                writeln(q50_pos);
-//                writeln(q75_pos);
-//                writeln(this._q75);
-
                 if( n_seen == q25_pos ) {
+                    writefln("Q25pos: %d", n_seen);
                     this._q25 = k;
                 }
                 if( n_seen == q50_pos ) {
+                    writefln("Q50pos: %d", n_seen);
                     this._q50 = k;
                 }
                 if( n_seen == q75_pos ) {
+                    writefln("Q75pos: %d", n_seen);
                     this._q75 = k;
                 }
             }
-        }            
+        }
+        // this sd formula is adapted from Clever-SV
         this._sd = (this._q75 - this._q25) / 2 / 0.6744898;
         return [this._q25,this._q50,this._q75];
     }
@@ -247,7 +245,7 @@ public:
 	}
 	
 private:
-	uint[ uint ] vals;
+	int[ uint ] vals;
 	uint total_count = 0;
     uint _q25 = 0;
     uint _q50 = 0;
