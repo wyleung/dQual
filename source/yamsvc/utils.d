@@ -209,15 +209,15 @@ public:
             foreach( val; 0 .. this.vals[k] ){
                 ++n_seen;
                 if( n_seen == q25_pos ) {
-                    writefln("Q25pos: %d", n_seen);
+//                    writefln("Q25pos: %d", n_seen);
                     this._q25 = k;
                 }
                 if( n_seen == q50_pos ) {
-                    writefln("Q50pos: %d", n_seen);
+//                    writefln("Q50pos: %d", n_seen);
                     this._q50 = k;
                 }
                 if( n_seen == q75_pos ) {
-                    writefln("Q75pos: %d", n_seen);
+//                    writefln("Q75pos: %d", n_seen);
                     this._q75 = k;
                 }
             }

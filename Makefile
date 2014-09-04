@@ -35,7 +35,7 @@ install: all
 $(BUILD_DIR): 
 	mkdir -p $@
 
-$(BUILD_DIR)/yamsvc: source/yamsvc_main.d $(INCL_OBJS) | $(BUILD_DIR)
+$(BUILD_DIR)/yamsvc: source/yamsvc_main.d $(INCL_OBJS)  source/bam/SortedBamReader.d | $(BUILD_DIR)
 	rdmd --force $(D_FLAGS) -of$@ $<
 
 $(BUILD_DIR)/yamsvc-regionbed: source/yamsvc_regionbed.d $(INCL_OBJS) | $(BUILD_DIR)

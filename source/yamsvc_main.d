@@ -29,8 +29,9 @@ import bio.bam.writer;
 
 import sambamba.utils.common.filtering;
 
-import yamsvc.utils;
+import bam.SortedBamReader;
 import yamsvc.datatypes;
+import yamsvc.utils;
 
 void printBedRegion(string reference_name, ref DiscordantRegion bed ) {
     if ( bed.size && bed.maxCoverageDiscordant() ) {
@@ -177,30 +178,6 @@ void makeRegion(BamReader bam,
     }
 
 }
-                
-struct ReadInfo {
-	/**
-		Lightweigth version of the $(bio.bam.read.BamRead),
-		This version can be stored in memory with the essential information
-	*/
-	int ref_id;
-	int pos;
-	int basesCovered;
-	ushort flag;
-	string name;
-	
-	@property uint end() {
-	    return this.pos+this.basesCovered;
-	    }
-	
-    this( int ref_id, int pos, int basesCovered, ushort flag, string name ) {
-    	this.ref_id = ref_id;
-    	this.pos = pos;
-    	this.basesCovered = basesCovered;
-    	this.flag = flag;
-    	this.name = name;
-    }
-}
 
 void extractReadInfo( BamReader bam, 
                 ReferenceSequenceInfo reference_sequence, 
@@ -211,7 +188,7 @@ void extractReadInfo( BamReader bam,
                 uint estimated_insertsize_stdev,
                 uint max_sd_degree, 
                 TaskPool tp) {
-    auto reads = bam[ cast(string) reference_sequence.name() ][1 .. reference_sequence.length];
+    auto reads = bam[ cast(string) reference_sequence.name() ][0 .. reference_sequence.length];
     
     ReadInfo[] contigreads;
     BamRead read;
@@ -219,25 +196,28 @@ void extractReadInfo( BamReader bam,
     // test how mush storage would be neede to store whole genome
     while (!reads.empty) {
         reads.popFront();
-        read = reads.front.dup;
+//        read = reads.front;
+        read = reads.front.dup; // duplicate only for low memory usage ?
         if ( !isDiscordant(read, estimated_insertsize, estimated_insertsize_stdev ) ) {
-//            if (has_minimum_quality(read, 20)) {
-//                writeln("1. Has MAPQ: %d", read.mapping_quality);
-//            } else {
-//                writefln("----> 1. Failing MAPQ: %d", read.mapping_quality);
-//                }
-//            if (read.is_paired) {
-//                writeln("2. Read is paired");
-//                }
-//            if (!read.mate_is_unmapped) {
-//                writeln("3. Mate is mapped");
-//                }
-//            if (!is_concordant(read)) {
-//                writeln("4. Is not concordant");
-//            }
-//            if (has_abnormal_isize(read, estimated_insertsize, estimated_insertsize_stdev)) {
-//                writefln("5. Has abnormal isize: %d", read.template_length );
-//            }
+            version(extraVerbose) {
+                if (has_minimum_quality(read, 20)) {
+                    writeln("1. Has MAPQ: %d", read.mapping_quality);
+                } else {
+                    writefln("----> 1. Failing MAPQ: %d", read.mapping_quality);
+                    }
+                if (read.is_paired) {
+                    writeln("2. Read is paired");
+                    }
+                if (!read.mate_is_unmapped) {
+                    writeln("3. Mate is mapped");
+                    }
+                if (!is_concordant(read)) {
+                    writeln("4. Is not concordant");
+                }
+                if (has_abnormal_isize(read, estimated_insertsize, estimated_insertsize_stdev)) {
+                    writefln("5. Has abnormal isize: %d", read.template_length );
+                }
+            }
             continue;
         }
         bool found_read = false;
@@ -266,11 +246,11 @@ void extractReadInfo( BamReader bam,
                     read.name
             );
         } else {
-        	double progress = cast(double) read.position / cast(double) reference_sequence.length;
-        	writefln("%d reads in %s memory, %d/%d %0.5f", contigreads.length, reference_sequence.name(), read.position, reference_sequence.length, progress);
+//        	double progress = cast(double) read.position / cast(double) reference_sequence.length;
+//        	writefln("%d reads in %s memory, %d/%d %0.5f", contigreads.length, reference_sequence.name(), read.position, reference_sequence.length, progress);
     	}
     }
-    writefln( "Reads: %d, size in mem: %d", contigreads.length, contigreads.sizeof );
+    writefln( "Unmatched reads: %d in %s, size in mem: %d", contigreads.length, reference_sequence.name(), contigreads.sizeof );
 }
 
 void scanContig(string bamfile, 
@@ -282,16 +262,17 @@ void scanContig(string bamfile,
                 uint estimated_insertsize_stdev,
                 uint max_sd_degree,
                 TaskPool task_pool) {
+
     auto tp = new TaskPool(4);
     scope(exit) tp.finish();
+
     auto bam = new BamReader(bamfile, tp);
     auto input_buf_size = 16_000_000;
     bam.setBufferSize(input_buf_size);
     
     writefln("Starting analysis of %s", reference_sequence.name);
-//    auto bam = new BamReader(bamfile, task_pool);
     writefln("Read bam %s for %s", bamfile, reference_sequence.name);
-//    bam.setBufferSize(32_000_000);
+
     extractReadInfo(bam, 
                 reference_sequence, 
                 cutoff_min, 
@@ -300,6 +281,7 @@ void scanContig(string bamfile,
                 estimated_insertsize, 
                 estimated_insertsize_stdev,
                 max_sd_degree, task_pool);
+
     writefln("Finished extraction %s", reference_sequence.name);
     
 //    makeRegion(bam, 
@@ -313,10 +295,12 @@ void scanContig(string bamfile,
 }
 
 void printUsage() {
+    int n_threads = std.parallelism.totalCPUs;
+    
     stderr.writeln("Usage: yamsvp-bedregion [options] <input.bam | input.sam>");
     stderr.writeln();
     stderr.writeln("Options: -T, --threads=NTHREADS");
-    stderr.writeln("                    maximum number of threads to use");
+    stderr.writefln("                    maximum number of threads to use [%d]", n_threads);
     
     stderr.writeln("         -w, --window=WINDOWWIDTH");
     stderr.writeln("                    width of window (bp) to scan [200]");
@@ -397,7 +381,9 @@ int main(string[] args) {
     scope(exit) task_pool.finish();
     
     string _bamfilename = args[1];
-    auto src = new BamReader(_bamfilename, task_pool);
+    auto bam = new BamReader(_bamfilename, task_pool);
+    auto src = new SortedBamReader( bam );
+    
     // Fix index, we need this for random access
     if( !src.has_index ) {
         writeln("No bai index found, creating one now....");
@@ -408,7 +394,9 @@ int main(string[] args) {
     Histogram h = Histogram();
     auto _reads = src.reads;
     auto limit = reads_for_histogram;
+    int counter = 0;
     foreach( BamRead read; _reads) {
+    	++counter;
         if( abs(read.template_length) < 1) continue;
         if( read.mate_ref_id != read.ref_id ) continue;
         if( read.is_duplicate ) continue;

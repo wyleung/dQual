@@ -248,3 +248,33 @@ class CallRegion {
     }
 }
 
+
+
+struct ReadInfo {
+    /**
+        Lightweigth version of the $(bio.bam.read.BamRead),
+        This version can be stored in memory with the essential information
+    */
+    int ref_id;
+    int pos;
+    int basesCovered;
+    ushort flag;
+    string name;
+
+    @property uint start() {
+        return this.pos;
+        }
+
+    @property uint end() {
+        return this.pos+this.basesCovered;
+        }
+    
+    this( int ref_id, int pos, int basesCovered, ushort flag, string name ) {
+        this.ref_id = ref_id;
+        this.pos = pos;
+        this.basesCovered = basesCovered;
+        this.flag = flag;
+        this.name = name;
+    }
+}
+
