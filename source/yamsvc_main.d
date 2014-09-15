@@ -20,6 +20,7 @@ import std.algorithm;
 import std.getopt;
 import std.math;
 import std.parallelism;
+import std.path;
 import std.stdio;
 
 import bio.bam.reader;
@@ -180,6 +181,8 @@ void makeRegion(BamReader bam,
 }
 
 void extractReadInfo( BamReader bam, 
+                string discordant_bam, // target bam
+                string calls_file,  // target calls file
                 ReferenceSequenceInfo reference_sequence, 
                 ushort cutoff_min, 
                 ushort cutoff_max, 
@@ -253,7 +256,8 @@ void extractReadInfo( BamReader bam,
     writefln( "Unmatched reads: %d in %s, size in mem: %d", contigreads.length, reference_sequence.name(), contigreads.sizeof );
 }
 
-void scanContig(string bamfile, 
+void scanContig(string bamfile,
+                string workdir,
                 ReferenceSequenceInfo reference_sequence, 
                 ushort cutoff_min, 
                 ushort cutoff_max, 
@@ -262,6 +266,13 @@ void scanContig(string bamfile,
                 uint estimated_insertsize_stdev,
                 uint max_sd_degree,
                 TaskPool task_pool) {
+
+    // we create 2 files in the workdir:
+    // new bam with only the discordant reads (for debugging)
+    // CallRegion file with the plain calls without normalisation and filtering
+    // just compose the filename over here and pass them to the analysis module.
+    string discordant_bam = absolutePath( workdir ~ "/" ~ reference_sequence.name ~ ".bam" );
+    string calls = absolutePath( workdir ~ "/" ~ reference_sequence.name ~ ".calls" );
 
     auto tp = new TaskPool(4);
     scope(exit) tp.finish();
@@ -274,6 +285,8 @@ void scanContig(string bamfile,
     writefln("Read bam %s for %s", bamfile, reference_sequence.name);
 
     extractReadInfo(bam, 
+                discordant_bam,
+                calls,
                 reference_sequence, 
                 cutoff_min, 
                 cutoff_max, 
@@ -344,12 +357,13 @@ int main(string[] args) {
     uint max_sd_degree = 2;
     ubyte compression_level = 9;
     
-    uint reads_for_histogram = 1_000_000;
+    uint reads_for_histogram = 1_00_000;
     
     string bam_outputfilename;
     string bed_filename;
 
     bool verbose;
+    string workdir = "./work/";
 
     getopt(
         args,
@@ -369,6 +383,7 @@ int main(string[] args) {
         "reads_for_histogram|r", &reads_for_histogram, // numeric
         "max_sd_degree|d", &max_sd_degree, // numeric
 
+        "workdir|w", &workdir,       // flag
         "verbose|v", &verbose,       // flag
         );
 
@@ -395,17 +410,20 @@ int main(string[] args) {
     auto _reads = src.reads;
     auto limit = reads_for_histogram;
     int counter = 0;
-    foreach( BamRead read; _reads) {
+    foreach( AlnPair_t pair; _reads) {
     	++counter;
-        if( abs(read.template_length) < 1) continue;
-        if( read.mate_ref_id != read.ref_id ) continue;
-        if( read.is_duplicate ) continue;
-        if( read.is_secondary_alignment) continue;
-        if( read.is_unmapped ) continue;
-        if( !read.is_paired ) continue;
+    	
+    	if( pair.is_duplicate ) continue;
+        if( pair.is_secondary_alignment) continue;
+        if( pair.is_unmapped ) continue;
+    	
+    	// don't use translocational mates for insertsize histogram
+        if( pair.is_interchromosomal ) continue;
 
         limit--;
-        h.add( std.math.abs(read.template_length) );
+        h.add( std.math.abs( pair.insertsize ) );
+        
+//        h.add( std.math.abs(read.template_length) );
         if (limit == 0){
             break;
         }
@@ -413,6 +431,7 @@ int main(string[] args) {
     
     auto stat = h._recompute();
     
+    writefln("Histogram range: %d .. %d", h.min , h.max);
     writefln("Histogram width: %d", h.width);
     writefln("Histogram records: %d", h.size);
     writefln("Histogram median: %s", h.median);
@@ -425,6 +444,7 @@ int main(string[] args) {
     foreach (refseq; src.reference_sequences) {
 //        writefln("Starting thread for %s", refseq.name);
         auto t = task!scanContig(_bamfilename, 
+                                workdir, 
                                 refseq, 
                                 cutoff_min, 
                                 cutoff_max, 
