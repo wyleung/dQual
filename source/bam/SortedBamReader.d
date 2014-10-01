@@ -12,88 +12,127 @@ import std.range;
 import std.exception;
 
 struct AlnPair_t {
-	/*
-	The convention read numbering:
-	We follow the ordering from the sequencer, so the first read in pair is read1 and the second read2
-	*/
+    /*
+    The convention read numbering:
+    We follow the ordering from the sequencer, so the first read in pair is read1 and the second read2
+    */
     BamRead read1;
     BamRead read2;
     
+    
+    // translation table for orientation:
+    // 0: FF
+    // 1: FR
+    // 2: RF
+    // 3: RR
+    ubyte orientation;
+    
+    string repr() const{
+        auto ret = appender!string();
+        ret.put( to!string(read1.ref_id) ); ret.put(" ");
+        ret.put( to!string(read1.position) ); ret.put(" ");
+        ret.put( to!string(read1.position + read1.basesCovered) ); ret.put(" ");
+        
+        ret.put( to!string(read2.ref_id) ); ret.put(" ");
+        ret.put( to!string(read2.position) ); ret.put(" ");
+        ret.put( to!string(read2.position + read1.basesCovered) ); ret.put(" ");
+        ret.put("- orientation: ");
+        ret.put( to!string(orientation) ); ret.put(" ");
+        ret.put("- insertsize: ");
+        ret.put( to!string(insertsize) ); ret.put(" ");
+        return cast(string) ret.data;
+    }
+    
     this (BamRead r1, BamRead r2) {
-    	this.read1 = r1;
-    	this.read2 = r2;
+        this.read1 = r1;
+        this.read2 = r2;
+        if ( !r1.is_reverse_strand ) { // F1
+            if ( !r2.is_reverse_strand ) { // F2
+                orientation = 0;
+            }
+            else { // R2
+                orientation = 1;
+            }
+        } else { // R1
+            if ( !r2.is_reverse_strand ) { // F2
+                orientation = 2;
+            }
+            else { // R2
+                orientation = 3;
+            }
+        }
     }
     
     @property string name() const {
-    	return read1.name;
-	}
+        return read1.name;
+    }
     
     @property bool is_duplicate() const {
-    	return read1.is_duplicate || read2.is_duplicate;
+        return read1.is_duplicate || read2.is_duplicate;
     }
     
     @property bool is_secondary_alignment() const {
-    	return read1.is_secondary_alignment || read2.is_secondary_alignment;
+        return read1.is_secondary_alignment || read2.is_secondary_alignment;
     }
 
     @property bool is_unmapped() const {
-    	return read1.is_unmapped || read2.is_unmapped;
+        return read1.is_unmapped || read2.is_unmapped;
     }
     
     @property bool is_interchromosomal() const {
-    	return read1.ref_id != read2.ref_id;
+        return read1.ref_id != read2.ref_id;
     }
     
     @property uint insertsize() const {
-    	// the insert size definition the following pair configurations:
-    	// no insertsize on interchromosomal matings
-    	if( this.is_interchromosomal ) {
-    		return 0;
-		}
-    	
-    	// F1 F2: F2.start - F1.start
-    	if( !read1.is_reverse_strand && !read2.is_reverse_strand ) {
-    		if ( read1.position > read2.position ) {
-    			return (read1.position + read1.basesCovered) - read2.position;
-			}
-    		return read2.position - read1.position;
-		}
-    	
-    	// R1 R2: R1.end - R2.end
-    	if( read1.is_reverse_strand && read2.is_reverse_strand ) {
-    		if ( read2.position > read1.position ) {
-    			return (read2.position + read2.basesCovered) - read1.position;
-			}
-    		return (read1.position+read1.basesCovered) - (read2.position+read2.basesCovered);
-		}
-    	
-    	// F1 R2: R2.end - F1.start
-    	if( !read1.is_reverse_strand && read2.is_reverse_strand ) {
-    		if ( read1.position > read2.position ) {
-    			return (read1.position + read1.basesCovered) - read2.position;
-			}
-    		return (read2.position + read2.basesCovered) - read1.position;
-		}
-    	// F2 R1: R1.end - F2.start
-    	if( read1.is_reverse_strand && !read2.is_reverse_strand ) {
-    		if ( read2.position > read1.position ) {
-    			return (read2.position + read2.basesCovered) - read1.position;
-			}
-    		return (read1.position + read1.basesCovered) - read2.position;
-		}
-    	return 0;
+        // the insert size definition the following pair configurations:
+        // no insertsize on interchromosomal matings
+        if( this.is_interchromosomal ) {
+            return 0;
+        }
+        
+        // F1 F2: F2.start - F1.start
+        if( !read1.is_reverse_strand && !read2.is_reverse_strand ) {
+            if ( read1.position > read2.position ) {
+                return (read1.position + read1.basesCovered) - read2.position;
+            }
+            return read2.position - read1.position;
+        }
+        
+        // R1 R2: R1.end - R2.end
+        if( read1.is_reverse_strand && read2.is_reverse_strand ) {
+            if ( read2.position > read1.position ) {
+                return (read2.position + read2.basesCovered) - read1.position;
+            }
+            return (read1.position+read1.basesCovered) - (read2.position+read2.basesCovered);
+        }
+        
+        // F1 R2: R2.end - F1.start
+        if( !read1.is_reverse_strand && read2.is_reverse_strand ) {
+            if ( read1.position > read2.position ) {
+                return (read1.position + read1.basesCovered) - read2.position;
+            }
+            return (read2.position + read2.basesCovered) - read1.position;
+        }
+        // F2 R1: R1.end - F2.start
+        if( read1.is_reverse_strand && !read2.is_reverse_strand ) {
+            if ( read2.position > read1.position ) {
+                return (read2.position + read2.basesCovered) - read1.position;
+            }
+            return (read1.position + read1.basesCovered) - read2.position;
+        }
+        return 0;
     }
     
 }
 
 struct ReadPairRange {
-	/* support on non sliced bam file (e.g. no chromosome selected) 
-	* we work directly on the reader.reads
-	*/
-	
+    /* support on non sliced bam file (e.g. no chromosome selected) 
+    * we work directly on the reader.reads
+    */
+    
     ulong reads_processed = 0;
 
-	this(BamReader reader=null) {
+    this(BamReader reader=null) {
         _reader = reader;
         _reads = reader.reads;
         readNext();
@@ -104,25 +143,25 @@ struct ReadPairRange {
     }
 
     @property ref AlnPair_t front() {
-    	BamRead r1 = this._paired_reads[0];
-    	BamRead r2 = this._paired_reads[1];
-    	
-		this.currentpair = AlnPair_t(r1, r2);
-    	return this.currentpair;
+        BamRead r1 = this._paired_reads[0];
+        BamRead r2 = this._paired_reads[1];
+        
+        this.currentpair = AlnPair_t(r1, r2);
+        return this.currentpair;
     }
     
 //    @property ref BamRead front() {
-//    	return this._paired_reads[0];
+//        return this._paired_reads[0];
 //    }
     
     void popFront() {
-		this._paired_reads = this._paired_reads[2 .. $];
-		/*
-			We can read ahead for caching purpose, upto 2000 pairs in the cache
-		*/
-    	if ( !this._reads.empty && this._paired_reads.length < 4000 ) {
-    		this.readNext();
-		}
+        this._paired_reads = this._paired_reads[2 .. $];
+        /*
+            We can read ahead for caching purpose, upto 2 pairs in the cache
+        */
+        if ( !this._reads.empty && this._paired_reads.length < 4 ) {
+            this.readNext();
+        }
     }
     
     void readNext() {
@@ -132,7 +171,7 @@ struct ReadPairRange {
         bool found = false;
         int i = 0;
         foreach(int j, BamRead cread; this._cached_reads) {
-            if( cread.name == this._current_record.name) {
+            if( cread.mate_position == this._current_record.position && cread.name == this._current_record.name) {
                 found = true;
                 this._cached_reads = std.algorithm.remove( this._cached_reads, j );
                 this._paired_reads ~= cread;
@@ -160,7 +199,7 @@ private:
 } 
 
 class SortedBamReader {
-	/// currently not taking chromosome slices because of incompatible datatype (BamReadRange!withoutOffsets)
+    /// currently not taking chromosome slices because of incompatible datatype (BamReadRange!withoutOffsets)
 private:
     BamReader _bamreader;
 public:
@@ -177,10 +216,10 @@ public:
 
     /* bamfile helper functions */
     bool has_index() {
-    	return this._bamreader.has_index();
-	}
+        return this._bamreader.has_index();
+    }
 
-	auto opIndex(string ref_name) {
+    auto opIndex(string ref_name) {
         enforce(this._bamreader.hasReference(ref_name), "Reference with name " ~ ref_name ~ " does not exist");
         return 0;
 //        auto ref_id = _reference_sequence_dict[ref_name];
@@ -188,15 +227,15 @@ public:
     }
     
     void createIndex() {
-    	this._bamreader.createIndex();
-	}
+        this._bamreader.createIndex();
+    }
     /* end bamfile helper functions */
     
 
     auto reads() @property {
-//    	return this._bamreader.reads;
-    	return ReadPairRange( this._bamreader );
-	}
+//        return this._bamreader.reads;
+        return ReadPairRange( this._bamreader );
+    }
 
     const(bio.bam.referenceinfo.ReferenceSequenceInfo)[] reference_sequences() @property const {
         return this._bamreader.reference_sequences;

@@ -206,9 +206,7 @@ unittest {
 	}
 
 
-class CallRegion {
-    BedRecord bed;
-    
+class CallRegion_old {
     uint[] mate_chromosome;
     ulong[] mate_positions;
     uint[] insertsizes;
@@ -250,14 +248,26 @@ class CallRegion {
 
 
 
-struct ReadInfo {
-    /**
-        Lightweigth version of the $(bio.bam.read.BamRead),
-        This version can be stored in memory with the essential information
-    */
-    int ref_id;
-    int pos;
-    int basesCovered;
+/**
+    Lightweigth version of the $(bio.bam.read.BamRead),
+    This version can be stored in memory with the essential information
+*/
+
+import std.bitmanip;
+
+static struct ReadInfo {
+    int ref_id; // max 4294967295 (4)
+    uint pos; // max 4294967295 (4)
+    ubyte basesCovered; // max 255 (1)
+
+    int mate_ref_id; // max 4294967295 (4)
+    uint mate_pos; // max 4294967295 (4)
+
+    mixin(bitfields!(
+        bool, "reverse",        1,
+        bool, "mate_reverse",   1,
+        bool, "first_of_pair",  1,
+        uint, "",               5)); // ubyte
     ushort flag;
     string name;
 
@@ -269,12 +279,27 @@ struct ReadInfo {
         return this.pos+this.basesCovered;
         }
     
-    this( int ref_id, int pos, int basesCovered, ushort flag, string name ) {
-        this.ref_id = ref_id;
-        this.pos = pos;
-        this.basesCovered = basesCovered;
-        this.flag = flag;
-        this.name = name;
+    this( BamRead r ) {
+        this.ref_id = r.ref_id;
+        this.pos = r.position;
+        this.basesCovered = cast(ubyte) r.basesCovered;
+        
+        this.mate_ref_id = r.mate_ref_id;
+        this.mate_pos = r.mate_position;
+        
+        this.reverse = r.is_reverse_strand;
+        this.mate_reverse = r.mate_is_reverse_strand;
+        this.first_of_pair = r.is_first_of_pair;
+        
+        this.flag = r.flag;
     }
+//    
+//    this( int ref_id, ubyte pos, ubyte basesCovered, ushort flag, string name ) {
+//        this.ref_id = ref_id;
+//        this.pos = pos;
+//        this.basesCovered = basesCovered;
+//        this.flag = flag;
+//        this.name = name;
+//    }
 }
 
