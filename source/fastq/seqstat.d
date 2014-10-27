@@ -7,7 +7,6 @@
  @license: MIT Licence
 */
 import core.atomic;
-import core.thread;
 import core.time;
 
 import std.algorithm : map, count, max, reduce, filter, equal;
@@ -54,9 +53,6 @@ class SeqStat {
         bases["N"] = 0;
         bases["total"] = 0;
     }
-    ~this() {
-        writeln("Killed seqstat!");
-        }
     
     public void setPath( string s ) {
     	this.path = s;
@@ -122,7 +118,6 @@ class SeqStat {
     	
         foreach(k; base_keys){
         	uint phred_qual = k - this.phred_correction;
-//        	writefln( "%d: %d", phred_qual, this.histo_base.raw[k]);
 
 	        foreach( i; 0 .. this.base_quality.length ) {
 	            auto qval = i * 10u ? i * 10u : 1u;  // to fix the 0 index,resulting into qval=0
@@ -136,7 +131,6 @@ class SeqStat {
     	
         foreach(k; read_keys){
         	uint phred_qual = k - this.phred_correction;
-//        	writefln( "%d: %d", phred_qual, this.histo_read.raw[k]);
 
 	        foreach( i; 0 .. this.read_quality.length ) {
 	            auto qval = i * 10u ? i * 10u : 1u;  // to fix the 0 index,resulting into qval=0
@@ -145,13 +139,6 @@ class SeqStat {
 	            }
             }
     	}
-//    	writefln("base raw counts: %s", this.histo_base.raw);
-//    	writefln("base histogram width: %d", this.histo_base.width);
-//    	writefln("base min, max, phred-encoding: %d, %d, %s, -%d", 
-//    		this.histo_base.min, this.histo_base.max, this.phred_encoding, phred_correction);
-//    	
-//    	writefln("bases counted: %d", this.histo_base.size);
-//        writefln( "%s \t %s \t %s \t %s\n", this.bases, this.base_quality, this.reads, this.length );
 
         auto base_quals = appender!string();
         base_quals.put("{\n");
@@ -229,9 +216,6 @@ class SeqStat {
         this.reads["N"]
         );
         writeln(writer.data);
-
-        //		JSONValue myjson = parseJSON( writer.data );
-//		writeln(toJSON(&myjson, true));   
     }
 }
 
@@ -293,72 +277,26 @@ final class FastQRead {
 void printUsage() {
     stderr.writeln("Usage: fastq-seqstat [options] <input.fastq>");
     stderr.writeln();
-    stderr.writeln("Options: -T, --threads=NTHREADS");
-    stderr.writeln("                    maximum number of threads to use");
-    stderr.writeln();
+//    stderr.writeln("Options: -T, --threads=NTHREADS");
+//    stderr.writeln("                    maximum number of threads to use");
+//    stderr.writeln();
 }
 
-void printBytes(T)(ref T variable)
-{
-    const ubyte * begin = cast(ubyte*)&variable;    // (1)
 
-    writefln("type   : %s", T.stringof);
-    writefln("value  : %s", variable);
-    writefln("address: %s", begin);                 // (2)
-    writef  ("bytes  : ");
-
-    writefln("%(%02x %)", begin[0 .. T.sizeof]);    // (3)
-
-    writeln();
-}
-class Lock
-{}
-void printMemory(T)(T * location, size_t length)
-{
-    const ubyte * begin = cast(ubyte*)location;
-
-    foreach (address; begin .. begin + length) {
-        char c = (isPrintable(*address) ? *address : '.');
-
-        writefln("%s:  %02x  %s", address, *address, c);
-    }
-}
-
-void countReads(FastQRead read, shared(uint) * counter, SeqStat stats, shared(Lock) lock) {
+void countReads(FastQRead read, shared(uint) * counter, SeqStat stats) {
     atomicOp!"+="(*counter, 1);    // atomic update
     stats.add(read);
-//    synchronized(lock){
-//        atomicOp!"+="(*counter, 1);    // atomic update
-//    }
 }
-
-void doStats( SeqStat stats, FastQRead read, shared(int) * counter, shared(Lock) lock ) {
-    
-    synchronized (stats) {
-        stats.add(read);
-    }
-    
-    printBytes(*counter);
-    atomicOp!"+="(*counter, 1);    // atomic update
-    synchronized (lock) {
-        ++(*counter);
-    }
-    printBytes(*counter);
-}
-
-void makeReport(SeqStat *stats) {
-    stats.report();
-    }
 
 int main(string[] args) {
     
-    auto n_threads = 1; // actually any number higher than 1 is now dangerous, skipping tasks etc. DEBUG!
+//    auto n_threads = 1; // actually any number higher than 1 is now dangerous, skipping tasks etc. DEBUG!
     string s_fastq;
     
     getopt(
         args,
         std.getopt.config.caseSensitive,
-        "threads|T",  &n_threads,    // numeric
+//        "threads|T",  &n_threads,    // numeric
         "fastq|F",  &s_fastq,    // numeric
         );
 
@@ -367,16 +305,12 @@ int main(string[] args) {
         return 0;
     }
     
-    auto task_pool = new TaskPool(n_threads);
-    scope(exit) task_pool.finish();
-    
     string input_file = args[1];
     std.file.File file;
     auto len = input_file.length;
     if(input_file[len - 3 .. len] == ".gz") {
         auto pipe = pipeShell("gunzip -c " ~ input_file);
         file = pipe.stdout;
-//    	file = GzipByLine(input_file);
 	} else {
     	file = File(input_file, "r");
 	}
@@ -389,7 +323,6 @@ int main(string[] args) {
     
     shared(uint) reads_processed = uint.min;
     shared(uint) * ptr = &reads_processed;
-    shared(Lock) lock = new shared(Lock)();
     
     SHA1 sha;
     sha.start();
@@ -405,15 +338,13 @@ int main(string[] args) {
             chomp(sequence), 
             chomp(holder),
             chomp(quality));
-        countReads( read, ptr, stats, lock );
+        countReads( read, ptr, stats );
 
         sha.put(cast(immutable(ubyte)[]) name);
         sha.put(cast(immutable(ubyte)[]) sequence);
         sha.put(cast(immutable(ubyte)[]) holder);
         sha.put(cast(immutable(ubyte)[]) quality);;
     }
-
-    task_pool.finish();
     stats.setPath(args[1]);
     stats.setSHA1sum(toHexString(sha.finish()));
     stats.report();
