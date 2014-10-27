@@ -267,19 +267,29 @@ static struct ReadInfo {
         bool, "reverse",        1,
         bool, "mate_reverse",   1,
         bool, "first_of_pair",  1,
-        uint, "",               5)); // ubyte
+        uint, "",               5)); // .sizeof = ubyte
+
     ushort flag;
     string name;
 
+//	~this() {
+//		stderr.writeln("Del struct ReadInfo");
+//	}
+
     @property uint start() {
         return this.pos;
-        }
+    }
 
     @property uint end() {
         return this.pos+this.basesCovered;
-        }
-    
+    }
+
+    @property bool transchromosomal() {
+    	return this.ref_id != this.mate_ref_id;
+	}
+
     this( BamRead r ) {
+        this.name = r.name;
         this.ref_id = r.ref_id;
         this.pos = r.position;
         this.basesCovered = cast(ubyte) r.basesCovered;

@@ -15,6 +15,7 @@
 
 
 import core.atomic;
+import core.memory;
 
 import std.array;
 import std.algorithm;
@@ -267,13 +268,9 @@ void extractReadInfo( string bamfile,
     } catch (Exception e) {
         writefln("[Error] %s", e.msg);
     }
-//    writefln( "bam: %s", bam.filename );
     auto input_buf_size = 16_000_000;
     bam.setBufferSize(input_buf_size);
-//    auto reads = bam.getReadsOverlapping([BamRegion( bamregion.ref_id, 2137000, 3968000 )]);
     auto reads = bam.getReadsOverlapping([bamregion]);
-
-//    writefln("%s reads", bamregion);
 
     BamRead[] contigreads_trans;
     BamRead[] contigreads_first;
@@ -292,19 +289,128 @@ void extractReadInfo( string bamfile,
     clusters_for_reporting.reserve(10240);
     
     uint reads_seen = 0;
-    defaultPoolThreads(1);
+//    defaultPoolThreads(1);
     std.datetime.StopWatch sw;
     sw.start(); // total time spent on reading all the reads in the region
-    auto _clusters = taskPool.map!fromBamRead(
+    auto _minireads = tp.map!fromBamRead(
             reads
         ).array();
-    stderr.writefln("Mapped reading: %s : %d reads in total %d [hns],  %g [hns]/read",
-        bamregion, 
-        _clusters.length, 
-        sw.peek().hnsecs, 
-        cast(double) sw.peek().hnsecs / _clusters.length );
+    auto trans_reads = filter!( a => a.transchromosomal == true )(_minireads).array();
+    auto minireads = filter!( a => a.transchromosomal == false )(_minireads).array();
+    sw.stop();
+    
+    
+    std.datetime.StopWatch swsorting;
+    swsorting.start(); // total time spent on reading all the reads in the region
 
-    return;
+    auto readsFirst = filter!( a => a.first_of_pair == true )(minireads).array();
+    sort!("a.pos < b.pos")(readsFirst);
+
+    auto readsSecond = filter!( a => a.first_of_pair == false )(minireads).array();
+    sort!("a.mate_pos < b.mate_pos")(readsSecond);
+
+    stderr.writefln("Sorting:\t%s\treads in total %d [hns],\t%g [hns]/read",
+        bamregion, 
+        swsorting.peek().hnsecs, 
+        cast(double) swsorting.peek().hnsecs / minireads.length);
+
+    stderr.writefln("Mapped:\t%s\t:%d reads in total %d [hns],\t%g [hns]/read\nFirst:\t%d\tSecond\t%d",
+        bamregion, 
+        minireads.length, 
+        sw.peek().hnsecs, 
+        cast(double) sw.peek().hnsecs / minireads.length,
+        readsFirst.length,
+        readsSecond.length );
+    
+    ReadInfo[] report_storage;
+    report_storage.reserve(10240*2);
+    
+    ReadInfo[] tmp_storage;
+    tmp_storage.reserve(10240*2);
+    ReadInfo last_read;
+	ReadInfo r1;
+	ReadInfo r2;
+	AlnPair_t[] cluster_pairs;
+	cluster_pairs.reserve(10240);
+	uint cluster_count;
+
+    std.datetime.StopWatch sw_matching;
+    sw_matching.start(); // total time spent on reading all the reads in the region
+
+    stderr.writefln("1: %d, 2: %d", readsFirst.length, readsSecond.length );
+
+    while ( !readsFirst.empty && !readsSecond.empty ) {
+    	r1 = readsFirst.front;
+    	readsFirst.popFront();
+
+    	if ( r1.pos != last_read.pos ) {
+    		// dump the tmp_storage to 
+    		report_storage ~= tmp_storage;
+    		writefln("cur: %d\tlast: %d", r1.pos, last_read.pos);
+    		foreach( r; tmp_storage) {
+    		    writeln(r);
+    		    }
+    		tmp_storage.length = 0;
+    		tmp_storage.reserve(1024);
+    		writeln("Restarting tmp storage");
+
+    		// fill the tmp_storage will all reads second in pair on the particular position of the r1.
+    		// a one time operation
+            // assume the readsSecond is sorted by mate_pos
+            while ( readsSecond.front.mate_pos == r1.pos ) {
+                tmp_storage ~= readsSecond.front;
+                readsSecond.popFront();
+            }
+		}
+        last_read = r1;
+
+    	if ( tmp_storage.length == 0 ) {
+    	    // no mating reads for this position, move on to next?
+    	    report_storage ~= r1;
+    	    continue;
+	    }
+
+
+    	auto hits = filter!( a => a.name == r1.name )( tmp_storage ).array();
+    	if( hits.length ) {
+    		r2 = hits.front;
+    		writefln("%s\t%s", r1.name, r2.name);
+//    		cluster_pairs ~= AlnPair_t(r1, r2);
+    		cluster_count++;
+    		tmp_storage = filter!( a => a.name != r1.name )( tmp_storage ).array();
+		} else {
+		    writefln("%d\t%d", tmp_storage.length, hits.length);
+//		    tmp_storage ~= r1;
+	    }
+	}
+    stderr.writefln("Matching:\t%s\t%d pairs in total %d [hns],\t%g [hns]/pair",
+        bamregion, 
+        cluster_count,
+        sw_matching.peek().hnsecs, 
+        cast(double) sw_matching.peek().hnsecs / cluster_count);
+    
+    
+
+    return; // quick hack to not run the code below.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     while (!reads.empty) {
         reads_seen++;
@@ -655,11 +761,17 @@ int main(string[] args) {
         return 0;
     }
 
-    auto task_pool = new TaskPool(n_threads);
+//    std.parallelism.defaultPoolThreads = n_threads;
+//    int working_threads = n_threads;
+    int working_threads = n_threads;
+//	if ( n_threads > 1 ) {
+//		working_threads = cast(int)std.math.ceil( cast(float)(n_threads/2.0) );
+//	}
+    auto task_pool = new TaskPool( working_threads );
     scope(exit) task_pool.finish();
     
     string _bamfilename = args[1];
-    auto bam = new BamReader(_bamfilename, task_pool);
+    auto bam = new BamReader(_bamfilename );
     auto src = new SortedBamReader( bam );
     
     // Fix index, we need this for random access
@@ -693,8 +805,6 @@ int main(string[] args) {
     }
     
     auto stat = h._recompute();
-    
-//    ReadStorage[int] transread_storage;
     
     stderr.writefln("Histogram range: %d .. %d", h.min , h.max);
     stderr.writefln("Histogram width: %d", h.width);
