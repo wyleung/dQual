@@ -47,6 +47,12 @@ $(BUILD_DIR)/yamsvc-caller: source/yamsvc_caller.d $(INCL_OBJS) | $(BUILD_DIR)
 $(BUILD_DIR)/fastq-seqstat: source/fastq/seqstat.d $(INCL_OBJS) | $(BUILD_DIR)
 	rdmd --force $(D_FLAGS) -of$@ $<
 
+#$(BUILD_DIR)/fastq-seqstat.o: source/fastq/seqstat.d $(INCL_OBJS) | $(BUILD_DIR)
+#	dmd -c $< -of$@  -Ithirdparty/sambamba -Ithirdparty/BioD -Isource
+
+#$(BUILD_DIR)/fastq-seqstat: $(BUILD_DIR)/fastq-seqstat.o
+#	gcc $< -static -o $@ /usr/lib/x86_64-linux-gnu/libphobos2.a -lpthread
+
 $(BUILD_DIR)/fastqgz-seqstat: source/fastq/test.d $(INCL_OBJS) | $(BUILD_DIR)
 	rdmd --force $(D_FLAGS) -of$@ $<
 
